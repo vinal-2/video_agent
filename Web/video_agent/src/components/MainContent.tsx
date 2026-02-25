@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Trash2,
   Terminal,
@@ -289,7 +289,48 @@ const ReviewPanel = ({
   onRender,
   running,
 }: ReviewPanelProps) => {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [expandedIndex, setExpandedIndex]     = useState<number | null>(null);
+  const [bulkSelected, setBulkSelected]       = useState<Set<number>>(new Set());
+  const selectAllRef                          = useRef<HTMLInputElement>(null);
+
+  const allSelected  = segments.length > 0 && bulkSelected.size === segments.length;
+  const someSelected = bulkSelected.size > 0 && !allSelected;
+
+  // Set indeterminate state on the "select all" checkbox
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected;
+  }, [someSelected]);
+
+  // Clear selection when segment list changes (e.g. after reset)
+  useEffect(() => {
+    setBulkSelected(new Set());
+  }, [segments.length]);
+
+  const toggleBulk = useCallback((idx: number) => {
+    setBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setBulkSelected(new Set());
+    } else {
+      setBulkSelected(new Set(segments.map((_, i) => i)));
+    }
+  };
+
+  const bulkAccept = () => {
+    bulkSelected.forEach((idx) => setSegmentState(idx, "accepted"));
+    setBulkSelected(new Set());
+  };
+
+  const bulkReject = () => {
+    bulkSelected.forEach((idx) => setSegmentState(idx, "rejected"));
+    setBulkSelected(new Set());
+  };
 
   if (!segments.length) {
     return (
@@ -304,17 +345,48 @@ const ReviewPanel = ({
   return (
     <div className="h-full overflow-y-auto px-6 py-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Review segments</h2>
-          <p className="text-sm text-muted-foreground">{acceptedCount}/{totalSegments} accepted</p>
+        <div className="flex items-center gap-3">
+          {/* Select-all checkbox — supports indeterminate state */}
+          <input
+            ref={selectAllRef}
+            type="checkbox"
+            checked={allSelected}
+            onChange={handleSelectAll}
+            className="w-4 h-4 cursor-pointer rounded accent-lime-400 flex-shrink-0"
+            title="Select / deselect all"
+          />
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Review segments</h2>
+            <p className="text-sm text-muted-foreground">{acceptedCount}/{totalSegments} accepted</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={acceptAll} className="text-xs px-3 py-2 rounded-md border border-border/60 hover:border-primary/40">
-            Accept all
-          </button>
-          <button onClick={rejectAll} className="text-xs px-3 py-2 rounded-md border border-border/60 hover:border-primary/40">
-            Reject all
-          </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {bulkSelected.size > 0 ? (
+            <>
+              <span className="text-xs text-muted-foreground font-mono">{bulkSelected.size} selected</span>
+              <button
+                onClick={bulkAccept}
+                className="text-xs px-3 py-2 rounded-md border border-primary/50 text-primary hover:bg-primary/10 transition-colors"
+              >
+                Accept ({bulkSelected.size})
+              </button>
+              <button
+                onClick={bulkReject}
+                className="text-xs px-3 py-2 rounded-md border border-destructive/50 text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                Reject ({bulkSelected.size})
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={acceptAll} className="text-xs px-3 py-2 rounded-md border border-border/60 hover:border-primary/40">
+                Accept all
+              </button>
+              <button onClick={rejectAll} className="text-xs px-3 py-2 rounded-md border border-border/60 hover:border-primary/40">
+                Reject all
+              </button>
+            </>
+          )}
           <button
             onClick={onRender}
             disabled={!acceptedCount || running}
@@ -350,6 +422,8 @@ const ReviewPanel = ({
               isExpanded={expandedIndex === index}
               onExpand={() => setExpandedIndex(index)}
               onCollapse={() => setExpandedIndex(null)}
+              checked={bulkSelected.has(index)}
+              onCheck={() => toggleBulk(index)}
             />
           );
         })}

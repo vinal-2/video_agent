@@ -268,6 +268,8 @@ interface SegmentCardProps {
   isExpanded: boolean;
   onExpand: () => void;
   onCollapse: () => void;
+  checked?: boolean;
+  onCheck?: () => void;
 }
 
 const SegmentCard = ({
@@ -286,6 +288,8 @@ const SegmentCard = ({
   isExpanded,
   onExpand,
   onCollapse,
+  checked,
+  onCheck,
 }: SegmentCardProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying]       = useState(false);
@@ -386,6 +390,24 @@ const SegmentCard = ({
         onClick={() => isExpanded ? onCollapse() : onExpand()}
       >
         <div className="flex items-center gap-3">
+          {onCheck !== undefined && (
+            <span
+              onClick={(e) => { e.stopPropagation(); onCheck(); }}
+              role="checkbox"
+              aria-checked={checked ?? false}
+              className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center cursor-pointer transition-colors ${
+                checked
+                  ? "border-primary bg-primary/20 text-primary"
+                  : "border-border/60 hover:border-primary/50"
+              }`}
+            >
+              {checked && (
+                <svg className="w-2.5 h-2.5" viewBox="0 0 10 8" fill="none">
+                  <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+          )}
           <div className="w-10 h-10 rounded-md surface-elevated flex items-center justify-center flex-shrink-0">
             <Film className="w-5 h-5 text-primary/70" />
           </div>
