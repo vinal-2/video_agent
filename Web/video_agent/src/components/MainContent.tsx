@@ -326,6 +326,8 @@ const ReviewPanel = ({
               trim={trim}
               grade={grade}
               transition={transitionData[index] ?? "cut"}
+              prevSegment={index > 0 ? segments[index - 1] : null}
+              prevTrim={index > 0 ? (trimData[index - 1] ?? { start: segments[index - 1].start, end: segments[index - 1].end }) : null}
               onDecision={(d) => setSegmentState(index, d)}
               onTrimChange={(s, e) => updateTrim(index, s, e)}
               onGradeChange={(g) => updateGrade(index, g)}

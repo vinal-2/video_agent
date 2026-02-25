@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from "react";
-import { Film, Play, Pause, ChevronDown } from "lucide-react";
+import { Film, Play, Pause, ChevronDown, ChevronsRight } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Slider } from "@/components/ui/slider";
 import type { Segment, GradeSettings, TrimState } from "@/lib/api";
@@ -50,11 +50,107 @@ function buildCssFilter(grade: GradeSettings): string {
   if (grade.contrast   !== 0) parts.push(`contrast(${(1 + grade.contrast   / 100).toFixed(2)})`);
   if (grade.saturation !== 0) parts.push(`saturate(${(1 + grade.saturation / 100).toFixed(2)})`);
   if (grade.temp > 0) parts.push(`sepia(${(grade.temp / 100).toFixed(2)})`);
-  else if (grade.temp < 0) parts.push(`hue-rotate(${Math.abs(grade.temp)}deg)`);
+  else if (grade.temp < 0) parts.push(`hue-rotate(${(grade.temp * 2).toFixed(0)}deg)`); // negative → blue shift
+  // LUT: split multi-function strings so they don't stack as a single token
   const lutCss = LUT_CSS[grade.lut] ?? "";
-  if (lutCss) parts.push(lutCss);
+  if (lutCss) {
+    // Each LUT string may contain multiple filter functions; split on ") " boundary
+    lutCss.split(/(?<=\))\s+/).forEach((f) => { if (f.trim()) parts.push(f.trim()); });
+  }
   return parts.join(" ");
 }
+
+// ── Transition preview ────────────────────────────────────────────────────────
+
+const TransitionPreview = ({
+  prevVideoUrl,
+  prevTrimEnd,
+  currVideoUrl,
+  currTrimStart,
+  transition,
+}: {
+  prevVideoUrl: string;
+  prevTrimEnd: number;
+  currVideoUrl: string;
+  currTrimStart: number;
+  transition: string;
+}) => {
+  const prevRef = useRef<HTMLVideoElement>(null);
+  const currRef = useRef<HTMLVideoElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const WINDOW = 1.5;
+
+  // Seek thumbnails to correct positions on mount
+  useEffect(() => {
+    const prev = prevRef.current;
+    const curr = currRef.current;
+    if (prev) prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
+    if (curr) curr.currentTime = currTrimStart;
+  }, [prevTrimEnd, currTrimStart]);
+
+  // Update thumbnails when transition changes (seek to show current frames)
+  useEffect(() => {
+    if (!playing) {
+      const prev = prevRef.current;
+      const curr = currRef.current;
+      if (prev) prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
+      if (curr) curr.currentTime = currTrimStart;
+    }
+  }, [transition, playing, prevTrimEnd, currTrimStart]);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  const startPreview = useCallback(() => {
+    const prev = prevRef.current;
+    const curr = currRef.current;
+    if (!prev || !curr || playing) return;
+    setPlaying(true);
+    prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
+    prev.play().catch(() => {});
+    timerRef.current = setTimeout(() => {
+      prev.pause();
+      curr.currentTime = currTrimStart;
+      curr.play().catch(() => {});
+      timerRef.current = setTimeout(() => {
+        curr.pause();
+        setPlaying(false);
+      }, WINDOW * 1000);
+    }, WINDOW * 1000);
+  }, [playing, prevTrimEnd, currTrimStart]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">Preview cut</p>
+        <button
+          onClick={startPreview}
+          disabled={playing}
+          className="text-[10px] px-2 py-1 rounded border border-border/40 text-muted-foreground hover:border-primary/40 hover:text-primary/70 disabled:opacity-50 transition-colors"
+        >
+          {playing ? "Playing…" : "▶ Preview"}
+        </button>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="relative rounded overflow-hidden bg-black flex-shrink-0" style={{ width: "54px", aspectRatio: "9/16" }}>
+          <video ref={prevRef} src={prevVideoUrl} className="w-full h-full object-contain" preload="metadata" muted playsInline />
+        </div>
+        <div className="flex-1 flex flex-col items-center gap-1 text-center">
+          <ChevronsRight className="w-3 h-3 text-border/60" />
+          <span className="text-[9px] font-mono text-primary/70 border border-primary/20 px-1.5 py-0.5 rounded bg-primary/5">
+            {transition.replace(/_/g, " ")}
+          </span>
+          <ChevronsRight className="w-3 h-3 text-border/60" />
+        </div>
+        <div className="relative rounded overflow-hidden bg-black flex-shrink-0" style={{ width: "54px", aspectRatio: "9/16" }}>
+          <video ref={currRef} src={currVideoUrl} className="w-full h-full object-contain" preload="metadata" muted playsInline />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── SegmentCard ───────────────────────────────────────────────────────────────
 
 interface SegmentCardProps {
   segment: Segment;
@@ -63,6 +159,8 @@ interface SegmentCardProps {
   trim: TrimState;
   grade: GradeSettings;
   transition: string;
+  prevSegment?: Segment | null;
+  prevTrim?: TrimState | null;
   onDecision: (decision: SegmentDecision) => void;
   onTrimChange: (start: number, end: number) => void;
   onGradeChange: (grade: GradeSettings) => void;
@@ -79,6 +177,8 @@ const SegmentCard = ({
   trim,
   grade,
   transition,
+  prevSegment,
+  prevTrim,
   onDecision,
   onTrimChange,
   onGradeChange,
@@ -91,13 +191,15 @@ const SegmentCard = ({
   const [playing, setPlaying]       = useState(false);
   const [currentTime, setCurrentTime] = useState(trim.start);
 
-  const fileName   = segment.video_path?.split(/[/\\]/).pop() ?? "Unknown clip";
-  const tags       = (segment.combined_tags ?? segment.tags ?? []) as string[];
-  const rawDur     = segment.end - segment.start;
-  const trimDur    = trim.end - trim.start;
-  const styleScore = typeof segment.style_score === "number" ? segment.style_score : null;
-  const videoUrl   = `/video/${encodeURIComponent(fileName)}`;
-  const cssFilter  = buildCssFilter(grade);
+  const fileName     = segment.video_path?.split(/[/\\]/).pop() ?? "Unknown clip";
+  const tags         = (segment.combined_tags ?? segment.tags ?? []) as string[];
+  const rawDur       = segment.end - segment.start;
+  const trimDur      = trim.end - trim.start;
+  const styleScore   = typeof segment.style_score === "number" ? segment.style_score : null;
+  const videoUrl     = `/video/${encodeURIComponent(fileName)}`;
+  const cssFilter    = buildCssFilter(grade);
+  const prevFileName = prevSegment?.video_path?.split(/[/\\]/).pop();
+  const prevVideoUrl = prevFileName ? `/video/${encodeURIComponent(prevFileName)}` : null;
 
   // Seek to trim start whenever card is opened
   useEffect(() => {
@@ -252,12 +354,17 @@ const SegmentCard = ({
 
             {/* Left: video player + trim rail */}
             <div className="flex flex-col gap-3">
-              <div className="relative rounded-lg overflow-hidden bg-black" style={{ aspectRatio: "9/16", maxHeight: "320px" }}>
+              {/* Filter applied to wrapper div — NOT to <video> directly.
+                  Applying CSS filter to a <video> element breaks PiP in Chrome/Firefox:
+                  the compositing layer used for filters is incompatible with PiP rendering. */}
+              <div
+                className="relative rounded-lg overflow-hidden bg-black"
+                style={{ aspectRatio: "9/16", maxHeight: "320px", filter: cssFilter || undefined }}
+              >
                 <video
                   ref={videoRef}
                   src={videoUrl}
                   className="w-full h-full object-contain"
-                  style={{ filter: cssFilter || undefined }}
                   onTimeUpdate={handleTimeUpdate}
                   onPlay={() => setPlaying(true)}
                   onPause={() => setPlaying(false)}
@@ -376,6 +483,17 @@ const SegmentCard = ({
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* Transition preview — prev tail → current head */}
+              {index > 0 && prevVideoUrl && (
+                <TransitionPreview
+                  prevVideoUrl={prevVideoUrl}
+                  prevTrimEnd={prevTrim?.end ?? (prevSegment?.end ?? 0)}
+                  currVideoUrl={videoUrl}
+                  currTrimStart={trim.start}
+                  transition={transition}
+                />
               )}
 
               {/* Tags (expanded view) */}
