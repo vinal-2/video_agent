@@ -218,7 +218,7 @@ export function usePipeline() {
       setError(message);
       throw err;
     });
-  }, [segments, segmentStates, trimData, gradeData, config]);
+  }, [segments, segmentStates, trimData, gradeData, transitionData, config]);
 
   const cancelPipeline = useCallback(async () => {
     setError(null);
