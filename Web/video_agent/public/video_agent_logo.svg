@@ -1,0 +1,15 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vaGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c8f060" />
+      <stop offset="100%" stop-color="#60c8f0" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="64" fill="#0a0a0b" />
+  <rect x="32" y="32" width="448" height="448" rx="48" fill="url(#vaGradient)" opacity="0.1" />
+  <path d="M128 360 L208 160 L240 160 L320 360 L280 360 L224 210 L168 360 Z" fill="url(#vaGradient)" />
+  <rect x="304" y="160" width="48" height="200" rx="12" fill="#ffffff" opacity="0.8" />
+  <text x="50%" y="430" text-anchor="middle" font-family="Syne, 'Segoe UI', sans-serif" font-size="56" font-weight="700" fill="#ffffff">
+    video_agent
+  </text>
+</svg>

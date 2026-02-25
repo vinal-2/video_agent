@@ -1,0 +1,51 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Project runtime artefacts ─────────────────────────────────────────────────
+# Large video files — never commit
+raw_clips/
+reference_ig/
+
+# Generated outputs — not source
+output/
+analysis/
+logs/
+run.log
+*.log
+
+# ── Node / frontend ────────────────────────────────────────────────────────────
+Web/video_agent/node_modules/
+Web/video_agent/dist/
+Web/video_agent/dist-ssr/
+Web/video_agent/dist_builds/
+Web/video_agent/*.local
+
+# ── Editor / OS ───────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Claude Code internal ───────────────────────────────────────────────────────
+.claude/
+
+# ── Stale root-level files from earlier scaffolding ───────────────────────────
+index.html
+logo.jpg
+package-lock.json
+python
+run.log
+New folder/

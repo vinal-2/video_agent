@@ -1,0 +1,44 @@
+{
+  "name": "travel_reel",
+  "version": 2,
+  "source": "instagram",
+  "description": "Fast punchy cuts. Mixed outdoor/indoor. Faces welcome. High energy travel content.",
+  "reference_video": "Hero.mp4",
+  "siglip_style_embedding": null,
+  "_note": "Run build_style_profile_from_videos.py --folder reference_ig/disney_style --name travel_reel to populate embedding",
+  "avg_aesthetic_score": 4.489,
+  "tag_bias": {
+    "bright": 0.0,
+    "dark": 0.05,
+    "warm": 0.35,
+    "neutral": 0.55,
+    "cool": 0.1,
+    "indoor": 0.5,
+    "outdoor": 0.5,
+    "face": 0.15,
+    "busy": 0.5,
+    "minimal": 0.15,
+    "moderate": 0.35
+  },
+  "pacing": {
+    "median_cut": 1.33,
+    "p10": 0.76,
+    "p90": 2.01,
+    "min_cut": 0.66,
+    "max_cut": 2.36,
+    "style": "fast_punchy"
+  },
+  "duration_preferences": {
+    "min_segment": 0.6,
+    "max_segment": 2.5,
+    "target_total": 30.0
+  },
+  "scoring_weights": {
+    "W_STYLE_SIM": 0.5,
+    "W_AESTHETIC": 0.15,
+    "W_MOTION_SMOOTH": 0.05,
+    "W_BASE_SCORE": 0.3
+  },
+  "blur_threshold": 200,
+  "motion_smoothness_note": "Fast cuts mean smoothness is near-meaningless \u2014 keep weight at 0.05"
+}

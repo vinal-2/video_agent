@@ -1,0 +1,45 @@
+{
+  "name": "event_concert",
+  "version": 2,
+  "source": "instagram",
+  "description": "Fastest cuts. Accept motion blur as artistic. Stage and crowd energy. Neutral-cool palette.",
+  "reference_video": "Concert.mp4",
+  "siglip_style_embedding": null,
+  "_note": "Run build_style_profile_from_videos.py --folder reference_ig/disney_style --name event_concert to populate embedding",
+  "avg_aesthetic_score": 4.541,
+  "aesthetic_weight_note": "Concert/event content scores modestly on LAION \u2014 weight audio energy higher",
+  "tag_bias": {
+    "bright": 0.0,
+    "dark": 0.1,
+    "warm": 0.05,
+    "neutral": 0.7,
+    "cool": 0.25,
+    "indoor": 0.45,
+    "outdoor": 0.55,
+    "face": 0.0,
+    "busy": 0.7,
+    "minimal": 0.05,
+    "moderate": 0.25
+  },
+  "pacing": {
+    "median_cut": 1.07,
+    "p10": 0.67,
+    "p90": 1.97,
+    "min_cut": 0.53,
+    "max_cut": 2.4,
+    "style": "rapid_fire"
+  },
+  "duration_preferences": {
+    "min_segment": 0.5,
+    "max_segment": 2.5,
+    "target_total": 45.0
+  },
+  "scoring_weights": {
+    "W_STYLE_SIM": 0.45,
+    "W_AESTHETIC": 0.1,
+    "W_MOTION_SMOOTH": 0.05,
+    "W_BASE_SCORE": 0.4
+  },
+  "blur_threshold": 100,
+  "motion_smoothness_note": "15% intentional motion blur in reference \u2014 blur threshold deliberately lower"
+}

@@ -1,0 +1,22 @@
+{
+    "name": "warm_travel_reels",
+    "version": 1,
+    "source": "instagram",
+    "siglip_style_embedding": [
+        0.01,
+        -0.02,
+        0.03
+    ],
+    "avg_aesthetic_score": 0.78,
+    "tag_bias": {
+        "bright": 0.4,
+        "dark": 0.1,
+        "outdoor": 0.3,
+        "indoor": 0.2
+    },
+    "duration_preferences": {
+        "min_segment": 1.0,
+        "max_segment": 5.0,
+        "target_total": 30.0
+    }
+}

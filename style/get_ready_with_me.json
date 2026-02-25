@@ -1,0 +1,45 @@
+{
+  "name": "get_ready_with_me",
+  "version": 2,
+  "source": "instagram",
+  "description": "Slow, deliberate cuts. Indoor warm aesthetic. Products and spaces. GRWM / showcase style.",
+  "reference_video": "Disney1.mp4",
+  "siglip_style_embedding": null,
+  "_note": "Run build_style_profile_from_videos.py --folder reference_ig/disney_style --name get_ready_with_me to populate embedding",
+  "avg_aesthetic_score": 4.103,
+  "aesthetic_weight_note": "LAION underscores themed indoor content \u2014 keep W_AESTHETIC low",
+  "tag_bias": {
+    "bright": 0.0,
+    "dark": 0.0,
+    "warm": 0.7,
+    "neutral": 0.3,
+    "cool": 0.0,
+    "indoor": 1.0,
+    "outdoor": 0.0,
+    "face": 0.0,
+    "busy": 0.0,
+    "minimal": 0.3,
+    "moderate": 0.7
+  },
+  "pacing": {
+    "median_cut": 3.37,
+    "p10": 1.46,
+    "p90": 6.68,
+    "min_cut": 1.3,
+    "max_cut": 8.2,
+    "style": "slow_deliberate"
+  },
+  "duration_preferences": {
+    "min_segment": 1.3,
+    "max_segment": 8.5,
+    "target_total": 30.0
+  },
+  "scoring_weights": {
+    "W_STYLE_SIM": 0.5,
+    "W_AESTHETIC": 0.15,
+    "W_MOTION_SMOOTH": 0.05,
+    "W_BASE_SCORE": 0.3
+  },
+  "blur_threshold": 150,
+  "motion_smoothness_note": "Intentional slow pans \u2014 do not penalise moderate smoothness scores"
+}

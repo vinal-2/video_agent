@@ -1,0 +1,166 @@
+export type PipelinePhase = "idle" | "analysing" | "reviewing" | "rendering" | "done" | "error" | string;
+
+export interface GradeSettings {
+  brightness: number;  // -50 to +50
+  contrast: number;    // -50 to +50
+  saturation: number;  // -50 to +50
+  temp: number;        // -50 to +50 (warm/cool)
+  lut: string;         // "none" | "cinema" | "golden" | "cool" | "fade" | "punch" | "mono" | "teal_org"
+}
+
+export const DEFAULT_GRADE: GradeSettings = {
+  brightness: 0,
+  contrast: 0,
+  saturation: 0,
+  temp: 0,
+  lut: "none",
+};
+
+export interface TrimState {
+  start: number;
+  end: number;
+}
+
+export interface Segment {
+  start: number;
+  end: number;
+  score?: number;
+  buffer?: boolean;
+  video_path?: string;
+  tags?: string[];
+  combined_tags?: string[];
+  style_sim?: number;
+  style_score?: number;
+  [key: string]: unknown;
+}
+
+export interface SegmentCounts {
+  selected: number;
+  accepted: number;
+  buffer: number;
+  pending: number;
+}
+
+export interface PipelineStatus {
+  running: boolean;
+  phase: PipelinePhase;
+  log_line_count: number;
+  selected_segments?: Segment[];
+  reviewed_segments?: Segment[];
+  last_output?: string | null;
+  last_error?: string | null;
+  error_detail?: string | null;
+  clip_count?: number;
+  segment_counts?: SegmentCounts;
+  warnings?: string[];
+  ffmpeg_progress?: number | null;
+  [key: string]: unknown;
+}
+
+export interface OutputInfo {
+  path: string | null;
+  name?: string;
+  size_mb?: number;
+}
+
+export interface ClipInfo {
+  name: string;
+  size_mb: number;
+}
+
+export interface PipelineConfig {
+  template: string;
+  quality: "proxy" | "normal" | "high" | "4k";
+  buffer: number;
+  llm: boolean;
+  vision: boolean;
+  visionModel: string;
+  visionMax: number;
+  disableCache: boolean;
+}
+
+export const defaultConfig: PipelineConfig = {
+  template: "travel_reel",
+  quality: "proxy",
+  buffer: 5,
+  llm: false,
+  vision: false,
+  visionModel: "moondream",
+  visionMax: 15,
+  disableCache: false,
+};
+
+async function ensureOk(res: Response) {
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  return res;
+}
+
+export async function fetchStatus(): Promise<PipelineStatus> {
+  const res = await ensureOk(await fetch("/api/status"));
+  return res.json();
+}
+
+export async function fetchTemplates(): Promise<string[]> {
+  const res = await ensureOk(await fetch("/api/templates"));
+  return res.json();
+}
+
+export async function fetchClips(): Promise<ClipInfo[]> {
+  const res = await ensureOk(await fetch("/api/clips"));
+  return res.json();
+}
+
+export async function fetchLatestOutput(): Promise<OutputInfo> {
+  const res = await ensureOk(await fetch("/api/output/latest"));
+  return res.json();
+}
+
+function buildParams(config: PipelineConfig) {
+  return {
+    template: config.template,
+    quality: config.quality,
+    buffer: config.buffer,
+    llm: config.llm ? "1" : "0",
+    vision: config.vision ? config.visionModel : "none",
+    vision_max: config.vision ? config.visionMax : undefined,
+    disable_cache: config.disableCache ? "1" : "0",
+  };
+}
+
+export async function runPipelineRequest(config: PipelineConfig) {
+  const res = await ensureOk(
+    await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildParams(config)),
+    }),
+  );
+  return res.json().catch(() => ({}));
+}
+
+export async function renderSegmentsRequest(segments: Segment[], config: PipelineConfig) {
+  const payload = {
+    segments,
+    params: buildParams(config),
+  };
+  const res = await ensureOk(
+    await fetch("/api/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+  return res.json().catch(() => ({}));
+}
+
+export async function cancelPipelineRequest() {
+  const res = await ensureOk(
+    await fetch("/api/cancel", {
+      method: "POST",
+    }),
+  );
+  return res.json().catch(() => ({}));
+}

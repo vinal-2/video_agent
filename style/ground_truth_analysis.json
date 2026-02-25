@@ -1,0 +1,865 @@
+{
+  "analysis_meta": {
+    "script_version": "1.0",
+    "device_used": "cpu",
+    "frames_sampled": 20,
+    "elapsed_s": 56.6
+  },
+  "video_metadata": {
+    "filename": "concert.mp4",
+    "duration_s": 56.3,
+    "fps": 30.0,
+    "resolution": "720x1280",
+    "aspect_ratio": "9:16 (vertical)",
+    "total_frames": 1689
+  },
+  "pacing": {
+    "num_cuts": 47,
+    "cut_lengths": [
+      2.17,
+      1.0,
+      1.23,
+      1.07,
+      0.73,
+      0.9,
+      1.43,
+      1.5,
+      1.24,
+      1.23,
+      0.53,
+      0.84,
+      1.06,
+      0.67,
+      0.83,
+      0.7,
+      1.07,
+      1.37,
+      2.3,
+      0.8,
+      1.66,
+      1.8,
+      1.67,
+      1.13,
+      0.57,
+      0.9,
+      1.0,
+      0.7,
+      1.13,
+      0.57,
+      1.63,
+      0.67,
+      1.97,
+      0.86,
+      1.1,
+      2.4,
+      1.6,
+      1.14,
+      0.73,
+      0.73,
+      1.77,
+      2.27,
+      1.03,
+      1.97,
+      1.03,
+      1.07,
+      0.53
+    ],
+    "median_cut_s": 1.07,
+    "min_cut_s": 0.53,
+    "max_cut_s": 2.4,
+    "p10_s": 0.67,
+    "p90_s": 1.97,
+    "cut_timestamps": [
+      [
+        0.0,
+        2.17
+      ],
+      [
+        2.17,
+        3.17
+      ],
+      [
+        3.17,
+        4.4
+      ],
+      [
+        4.4,
+        5.47
+      ],
+      [
+        5.47,
+        6.2
+      ],
+      [
+        6.2,
+        7.1
+      ],
+      [
+        7.1,
+        8.53
+      ],
+      [
+        8.53,
+        10.03
+      ],
+      [
+        10.03,
+        11.27
+      ],
+      [
+        11.27,
+        12.5
+      ],
+      [
+        12.5,
+        13.03
+      ],
+      [
+        13.03,
+        13.87
+      ],
+      [
+        13.87,
+        14.93
+      ],
+      [
+        14.93,
+        15.6
+      ],
+      [
+        15.6,
+        16.43
+      ],
+      [
+        16.43,
+        17.13
+      ],
+      [
+        17.13,
+        18.2
+      ],
+      [
+        18.2,
+        19.57
+      ],
+      [
+        19.57,
+        21.87
+      ],
+      [
+        21.87,
+        22.67
+      ],
+      [
+        22.67,
+        24.33
+      ],
+      [
+        24.33,
+        26.13
+      ],
+      [
+        26.13,
+        27.8
+      ],
+      [
+        27.8,
+        28.93
+      ],
+      [
+        28.93,
+        29.5
+      ],
+      [
+        29.5,
+        30.4
+      ],
+      [
+        30.4,
+        31.4
+      ],
+      [
+        31.4,
+        32.1
+      ],
+      [
+        32.1,
+        33.23
+      ],
+      [
+        33.23,
+        33.8
+      ],
+      [
+        33.8,
+        35.43
+      ],
+      [
+        35.43,
+        36.1
+      ],
+      [
+        36.1,
+        38.07
+      ],
+      [
+        38.07,
+        38.93
+      ],
+      [
+        38.93,
+        40.03
+      ],
+      [
+        40.03,
+        42.43
+      ],
+      [
+        42.43,
+        44.03
+      ],
+      [
+        44.03,
+        45.17
+      ],
+      [
+        45.17,
+        45.9
+      ],
+      [
+        45.9,
+        46.63
+      ],
+      [
+        46.63,
+        48.4
+      ],
+      [
+        48.4,
+        50.67
+      ],
+      [
+        50.67,
+        51.7
+      ],
+      [
+        51.7,
+        53.67
+      ],
+      [
+        53.67,
+        54.7
+      ],
+      [
+        54.7,
+        55.77
+      ],
+      [
+        55.77,
+        56.3
+      ]
+    ]
+  },
+  "motion": {
+    "motion_smoothness_score": 0.383,
+    "smoothness_label": "moderate",
+    "avg_flow_magnitude": 1.032,
+    "flow_variance": 1.274
+  },
+  "summary": {
+    "avg_brightness": 107.3,
+    "avg_blur_score": 749.71,
+    "avg_contrast": 51.97,
+    "avg_saturation": 75.76,
+    "dominant_setting": "outdoor",
+    "dominant_colour_mood": "neutral",
+    "dominant_composition": "busy",
+    "face_presence_ratio": 0.0,
+    "blurry_frame_ratio": 0.15,
+    "tag_frequency": {
+      "normal": 0.9,
+      "medium_saturation": 0.85,
+      "neutral": 0.7,
+      "busy": 0.7,
+      "outdoor": 0.55,
+      "indoor": 0.45,
+      "cool": 0.25,
+      "moderate": 0.25,
+      "blurry": 0.15,
+      "high_saturation": 0.1,
+      "dark": 0.1,
+      "warm": 0.05,
+      "low_saturation": 0.05,
+      "minimal": 0.05
+    },
+    "aesthetic_score_avg": 4.541,
+    "aesthetic_score_min": 4.044,
+    "aesthetic_score_max": 4.971,
+    "aesthetic_available": true
+  },
+  "per_frame": [
+    {
+      "timestamp_s": 0.0,
+      "brightness": 121.9,
+      "brightness_tag": "normal",
+      "blur_score": 197.5,
+      "is_blurry": false,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "neutral",
+      "saturation": 66.5,
+      "saturation_label": "medium_saturation",
+      "contrast": 45.5,
+      "composition": "busy",
+      "edge_density": 19.7,
+      "has_face": false,
+      "avg_rgb": [
+        0.517,
+        0.458,
+        0.479
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.717
+    },
+    {
+      "timestamp_s": 2.93,
+      "brightness": 111.3,
+      "brightness_tag": "normal",
+      "blur_score": 134.7,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "cool",
+      "saturation": 112.7,
+      "saturation_label": "high_saturation",
+      "contrast": 47.6,
+      "composition": "moderate",
+      "edge_density": 16.31,
+      "has_face": false,
+      "avg_rgb": [
+        0.43,
+        0.418,
+        0.553
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "cool",
+        "high_saturation",
+        "moderate"
+      ],
+      "aesthetic_score_laion": 4.568
+    },
+    {
+      "timestamp_s": 5.9,
+      "brightness": 123.4,
+      "brightness_tag": "normal",
+      "blur_score": 1166.2,
+      "is_blurry": false,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "warm",
+      "saturation": 72.1,
+      "saturation_label": "medium_saturation",
+      "contrast": 47.6,
+      "composition": "busy",
+      "edge_density": 57.81,
+      "has_face": false,
+      "avg_rgb": [
+        0.502,
+        0.489,
+        0.411
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "warm",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.642
+    },
+    {
+      "timestamp_s": 8.87,
+      "brightness": 113.0,
+      "brightness_tag": "normal",
+      "blur_score": 1964.2,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 63.8,
+      "saturation_label": "medium_saturation",
+      "contrast": 55.6,
+      "composition": "busy",
+      "edge_density": 57.01,
+      "has_face": false,
+      "avg_rgb": [
+        0.452,
+        0.433,
+        0.474
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.896
+    },
+    {
+      "timestamp_s": 11.83,
+      "brightness": 62.3,
+      "brightness_tag": "dark",
+      "blur_score": 136.6,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 69.7,
+      "saturation_label": "medium_saturation",
+      "contrast": 40.2,
+      "composition": "moderate",
+      "edge_density": 14.41,
+      "has_face": false,
+      "avg_rgb": [
+        0.241,
+        0.238,
+        0.287
+      ],
+      "tags": [
+        "dark",
+        "outdoor",
+        "neutral",
+        "medium_saturation",
+        "moderate"
+      ],
+      "aesthetic_score_laion": 4.324
+    },
+    {
+      "timestamp_s": 14.8,
+      "brightness": 54.9,
+      "brightness_tag": "dark",
+      "blur_score": 54.0,
+      "is_blurry": true,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 92.5,
+      "saturation_label": "medium_saturation",
+      "contrast": 46.4,
+      "composition": "moderate",
+      "edge_density": 6.17,
+      "has_face": false,
+      "avg_rgb": [
+        0.257,
+        0.193,
+        0.223
+      ],
+      "tags": [
+        "dark",
+        "outdoor",
+        "neutral",
+        "medium_saturation",
+        "moderate",
+        "blurry"
+      ],
+      "aesthetic_score_laion": 4.044
+    },
+    {
+      "timestamp_s": 17.77,
+      "brightness": 97.8,
+      "brightness_tag": "normal",
+      "blur_score": 513.8,
+      "is_blurry": false,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "neutral",
+      "saturation": 65.8,
+      "saturation_label": "medium_saturation",
+      "contrast": 58.6,
+      "composition": "busy",
+      "edge_density": 18.77,
+      "has_face": false,
+      "avg_rgb": [
+        0.405,
+        0.368,
+        0.407
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.929
+    },
+    {
+      "timestamp_s": 20.7,
+      "brightness": 104.2,
+      "brightness_tag": "normal",
+      "blur_score": 146.7,
+      "is_blurry": false,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "cool",
+      "saturation": 78.2,
+      "saturation_label": "medium_saturation",
+      "contrast": 47.8,
+      "composition": "moderate",
+      "edge_density": 7.25,
+      "has_face": false,
+      "avg_rgb": [
+        0.397,
+        0.397,
+        0.499
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "cool",
+        "medium_saturation",
+        "moderate"
+      ],
+      "aesthetic_score_laion": 4.181
+    },
+    {
+      "timestamp_s": 23.67,
+      "brightness": 124.1,
+      "brightness_tag": "normal",
+      "blur_score": 1557.0,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 30.8,
+      "saturation_label": "low_saturation",
+      "contrast": 40.2,
+      "composition": "busy",
+      "edge_density": 45.97,
+      "has_face": false,
+      "avg_rgb": [
+        0.478,
+        0.486,
+        0.511
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "neutral",
+        "low_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.726
+    },
+    {
+      "timestamp_s": 26.63,
+      "brightness": 114.1,
+      "brightness_tag": "normal",
+      "blur_score": 978.2,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 79.3,
+      "saturation_label": "medium_saturation",
+      "contrast": 56.4,
+      "composition": "busy",
+      "edge_density": 52.89,
+      "has_face": false,
+      "avg_rgb": [
+        0.468,
+        0.44,
+        0.432
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.591
+    },
+    {
+      "timestamp_s": 29.6,
+      "brightness": 115.8,
+      "brightness_tag": "normal",
+      "blur_score": 1066.5,
+      "is_blurry": false,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "neutral",
+      "saturation": 76.0,
+      "saturation_label": "medium_saturation",
+      "contrast": 64.9,
+      "composition": "busy",
+      "edge_density": 21.31,
+      "has_face": false,
+      "avg_rgb": [
+        0.484,
+        0.435,
+        0.472
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.564
+    },
+    {
+      "timestamp_s": 32.57,
+      "brightness": 127.3,
+      "brightness_tag": "normal",
+      "blur_score": 1361.9,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 74.4,
+      "saturation_label": "medium_saturation",
+      "contrast": 56.6,
+      "composition": "busy",
+      "edge_density": 33.87,
+      "has_face": false,
+      "avg_rgb": [
+        0.511,
+        0.492,
+        0.51
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.971
+    },
+    {
+      "timestamp_s": 35.53,
+      "brightness": 132.2,
+      "brightness_tag": "normal",
+      "blur_score": 334.2,
+      "is_blurry": false,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "neutral",
+      "saturation": 47.8,
+      "saturation_label": "medium_saturation",
+      "contrast": 57.6,
+      "composition": "busy",
+      "edge_density": 18.31,
+      "has_face": false,
+      "avg_rgb": [
+        0.516,
+        0.514,
+        0.55
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.632
+    },
+    {
+      "timestamp_s": 38.47,
+      "brightness": 142.9,
+      "brightness_tag": "normal",
+      "blur_score": 1195.1,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 68.2,
+      "saturation_label": "medium_saturation",
+      "contrast": 52.7,
+      "composition": "busy",
+      "edge_density": 41.1,
+      "has_face": false,
+      "avg_rgb": [
+        0.573,
+        0.555,
+        0.557
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.416
+    },
+    {
+      "timestamp_s": 41.43,
+      "brightness": 107.7,
+      "brightness_tag": "normal",
+      "blur_score": 72.4,
+      "is_blurry": true,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "neutral",
+      "saturation": 64.0,
+      "saturation_label": "medium_saturation",
+      "contrast": 52.5,
+      "composition": "moderate",
+      "edge_density": 6.68,
+      "has_face": false,
+      "avg_rgb": [
+        0.414,
+        0.419,
+        0.463
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "neutral",
+        "medium_saturation",
+        "moderate",
+        "blurry"
+      ],
+      "aesthetic_score_laion": 4.152
+    },
+    {
+      "timestamp_s": 44.4,
+      "brightness": 115.3,
+      "brightness_tag": "normal",
+      "blur_score": 1533.0,
+      "is_blurry": false,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "cool",
+      "saturation": 70.1,
+      "saturation_label": "medium_saturation",
+      "contrast": 54.8,
+      "composition": "busy",
+      "edge_density": 49.89,
+      "has_face": false,
+      "avg_rgb": [
+        0.393,
+        0.471,
+        0.514
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "cool",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.201
+    },
+    {
+      "timestamp_s": 47.37,
+      "brightness": 99.3,
+      "brightness_tag": "normal",
+      "blur_score": 267.1,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "cool",
+      "saturation": 71.2,
+      "saturation_label": "medium_saturation",
+      "contrast": 47.4,
+      "composition": "busy",
+      "edge_density": 30.84,
+      "has_face": false,
+      "avg_rgb": [
+        0.345,
+        0.4,
+        0.45
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "cool",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.482
+    },
+    {
+      "timestamp_s": 50.33,
+      "brightness": 83.9,
+      "brightness_tag": "normal",
+      "blur_score": 1265.7,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "cool",
+      "saturation": 136.9,
+      "saturation_label": "high_saturation",
+      "contrast": 51.4,
+      "composition": "busy",
+      "edge_density": 41.17,
+      "has_face": false,
+      "avg_rgb": [
+        0.346,
+        0.296,
+        0.456
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "cool",
+        "high_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.662
+    },
+    {
+      "timestamp_s": 53.3,
+      "brightness": 105.3,
+      "brightness_tag": "normal",
+      "blur_score": 1006.5,
+      "is_blurry": false,
+      "indoor_outdoor": "outdoor",
+      "colour_mood": "neutral",
+      "saturation": 99.0,
+      "saturation_label": "medium_saturation",
+      "contrast": 66.1,
+      "composition": "busy",
+      "edge_density": 27.4,
+      "has_face": false,
+      "avg_rgb": [
+        0.431,
+        0.398,
+        0.444
+      ],
+      "tags": [
+        "normal",
+        "outdoor",
+        "neutral",
+        "medium_saturation",
+        "busy"
+      ],
+      "aesthetic_score_laion": 4.672
+    },
+    {
+      "timestamp_s": 56.27,
+      "brightness": 89.4,
+      "brightness_tag": "normal",
+      "blur_score": 42.8,
+      "is_blurry": true,
+      "indoor_outdoor": "indoor",
+      "colour_mood": "neutral",
+      "saturation": 76.2,
+      "saturation_label": "medium_saturation",
+      "contrast": 49.5,
+      "composition": "minimal",
+      "edge_density": 2.22,
+      "has_face": false,
+      "avg_rgb": [
+        0.335,
+        0.352,
+        0.388
+      ],
+      "tags": [
+        "normal",
+        "indoor",
+        "neutral",
+        "medium_saturation",
+        "minimal",
+        "blurry"
+      ],
+      "aesthetic_score_laion": 4.445
+    }
+  ]
+}

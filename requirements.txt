@@ -1,0 +1,57 @@
+torch==2.2.2
+torchvision==0.17.2
+torchaudio==2.2.2
+
+transformers==4.40.0
+timm==0.9.16
+
+opencv-python==4.9.0.80
+pillow==10.2.0
+numpy==1.26.4
+tqdm==4.66.2
+
+requests==2.31.0
+
+moviepy==2.2.1
+
+librosa==0.10.2.post1
+soundfile==0.12.1
+audioread==3.0.1
+ffmpeg-python==0.2.0
+
+
+# ── Core video processing ─────────────────────────────────────────────────────
+moviepy>=2.0.0
+opencv-python>=4.8.0
+ffmpeg-python>=0.2.0
+scenedetect[opencv]>=0.6.3
+
+# ── Audio analysis ────────────────────────────────────────────────────────────
+librosa>=0.10.0
+
+# ── Deep learning / vision models ────────────────────────────────────────────
+torch>=2.1.0
+torchvision>=0.16.0
+transformers>=4.40.0
+accelerate>=0.27.0
+
+# ── SigLIP + DINOv2 (via transformers, no extra install needed) ───────────────
+# Loaded via transformers above
+
+# ── LAION Aesthetic Scorer (semantic_aesthetic.py) ───────────────────────────
+open_clip_torch>=2.24.0
+
+# ── Vision tagger — Florence-2 and Moondream2 ─────────────────────────────────
+# Both load via transformers above.
+# Florence-2 also needs:
+timm>=0.9.0
+einops>=0.7.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+numpy>=1.24.0
+Pillow>=10.0.0
+tqdm>=4.66.0
+requests>=2.31.0
+
+# ── LLM planner (calls local LM Studio — no extra packages needed) ────────────
+# requests above covers the HTTP call to localhost:1234

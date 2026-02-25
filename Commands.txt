@@ -1,0 +1,80 @@
+Activate venv
+.venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+Template selection
+
+set STYLE_TEMPLATE=travel_reel
+set STYLE_TEMPLATE=event_concert
+set STYLE_TEMPLATE=grwm_style
+set STYLE_TEMPLATE=product_style
+set STYLE_TEMPLATE=breakfast_food
+
+LLM planner (Qwen / text model in LM Studio)
+
+set LLM_PLANNER_MODEL=qwen2.5-7b-instruct-1m   # explicit override — use exact model ID from LM Studio
+set ENABLE_LLM_PLANNER=0                        # disable LLM planner entirely (heuristic only)
+# If not set, auto-discovers the first non-vision/non-embedding model loaded in LM Studio
+
+Vision tagger
+
+set VISION_TAGGER_MODEL=none         # default — fast, skip Moondream
+set VISION_TAGGER_MODEL=moondream    # enable Moondream (~33s/frame CPU)
+set VISION_TAGGER_MAX_SEGMENTS=10    # default 15 — fewer = faster
+set VISION_TAGGER_MAX_SEGMENTS=20    # more coverage, slower
+set MOONDREAM_MODEL_DIR=C:\path\to\model   # override LM Studio default path
+
+Cache control
+
+set DISABLE_CACHE=1       
+
+Parallel workers
+
+set MAX_ANALYSIS_WORKERS=2           # reduce if memory pressure on large 4K clips
+set MAX_ANALYSIS_WORKERS=4           # default
+set MAX_ANALYSIS_WORKERS=6           # push harder if CPU allows
+
+
+Motion smoothness
+
+set MOTION_SMOOTHNESS_MIN_DURATION=3.0   # default — skip for segments < 3s
+set MOTION_SMOOTHNESS_MIN_DURATION=99    # effectively disable it entirely
+
+GPU batch size
+
+set SIGLIP_BATCH_SIZE=8              # reduce if CUDA OOM errors
+set SIGLIP_BATCH_SIZE=16             # default
+
+Speech analysis (disabled by default — requires faster-whisper)
+
+set ENABLE_SPEECH_ANALYSIS=1
+
+For example:
+
+Quick run:
+set STYLE_TEMPLATE=travel_reel && set VISION_TAGGER_MODEL=none && python -m scripts.analyze_and_edit
+
+Full quality run with vision:
+
+set STYLE_TEMPLATE=travel_reel && set VISION_TAGGER_MODEL=moondream && set VISION_TAGGER_MAX_SEGMENTS=15 && python -m scripts.analyze_and_edit
+
+Force fresh analysis (new clips added):
+
+set STYLE_TEMPLATE=travel_reel && set DISABLE_CACHE=1 && set VISION_TAGGER_MODEL=none && python -m scripts.analyze_and_edit
+
+RENDER_QUALITY:
+set RENDER_QUALITY=proxy    ← iteration runs, fastest, ~8MB
+set RENDER_QUALITY=normal   ← default, balanced  ~15MB
+set RENDER_QUALITY=high     ← final 1080p, best quality ~35MB
+set RENDER_QUALITY=4k       ← final publish at source resolution ~120MB
+
+python -m scripts.analyze_and_edit
+python -m scripts.analyze_and_edit --ui-mode
+
+Website launch
+powershell -ExecutionPolicy Bypass -File D:\video-agent\scripts\build_ui.ps1
+pwsh -File D:\video-agent\scripts\build_ui.ps1
+Web/video_agent npm install && npm run build
+All npm actions must run inside Web/video_agent (npm install && npm run build), after which python -m app at repo root serves the fresh build on http://localhost:5100.
+python -m app
