@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from "react";
-import { Film, Play, Pause, ChevronDown, ChevronsRight } from "lucide-react";
+import { Film, Play, Pause, ChevronDown } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Slider } from "@/components/ui/slider";
 import type { Segment, GradeSettings, TrimState } from "@/lib/api";
@@ -62,6 +62,40 @@ function buildCssFilter(grade: GradeSettings): string {
 
 // ── Transition preview ────────────────────────────────────────────────────────
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+type TransitionAnim = {
+  dur: number;         // transition duration ms
+  overlay?: string;   // flash/dip overlay colour
+  // [initial style (before playing), final style (end of animation)]
+  prevAnim: [React.CSSProperties, React.CSSProperties];
+  currAnim: [React.CSSProperties, React.CSSProperties];
+};
+
+// Each entry: initial styles are applied before prev plays (no CSS transition).
+// On switch, final styles are applied WITH CSS transition so the browser animates.
+// Both videos are stacked (position: absolute) in one container — required for
+// wipe/push/slide effects where clips overlap during the transition.
+const EFFECTS: Record<string, TransitionAnim> = {
+  cut:         { dur: 40,  prevAnim: [{ opacity: 1 }, { opacity: 1 }],                                                    currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  jump_cut:    { dur: 40,  prevAnim: [{ opacity: 1 }, { opacity: 1 }],                                                    currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  dissolve:    { dur: 300, prevAnim: [{ opacity: 1 }, { opacity: 0 }],                                                    currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  fade_black:  { dur: 400, overlay: "#000", prevAnim: [{ opacity: 1 }, { opacity: 0 }],                                   currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  dip_black:   { dur: 500, overlay: "#000", prevAnim: [{ opacity: 1 }, { opacity: 0 }],                                   currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  dip_white:   { dur: 500, overlay: "#fff", prevAnim: [{ opacity: 1 }, { opacity: 0 }],                                   currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  flash_white: { dur: 100, overlay: "#fff", prevAnim: [{ opacity: 1 }, { opacity: 0 }],                                   currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  flash_black: { dur: 100, overlay: "#000", prevAnim: [{ opacity: 1 }, { opacity: 0 }],                                   currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  // Wipe: curr reveals over prev using clip-path (100% inset = hidden, 0% = fully visible)
+  wipe_up:     { dur: 200, prevAnim: [{ opacity: 1 }, { opacity: 1 }],                                                    currAnim: [{ opacity: 1, clipPath: "inset(100% 0 0 0)" }, { opacity: 1, clipPath: "inset(0% 0 0 0)" }] },
+  wipe_left:   { dur: 200, prevAnim: [{ opacity: 1 }, { opacity: 1 }],                                                    currAnim: [{ opacity: 1, clipPath: "inset(0 0 0 100%)" }, { opacity: 1, clipPath: "inset(0 0 0 0%)" }] },
+  // Zoom: curr scales in over prev
+  zoom_in:     { dur: 300, prevAnim: [{ opacity: 1 }, { opacity: 0 }],                                                    currAnim: [{ opacity: 0, transform: "scale(1.3)" }, { opacity: 1, transform: "scale(1)" }] },
+  zoom_out:    { dur: 300, prevAnim: [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0.8)" }],    currAnim: [{ opacity: 0 }, { opacity: 1 }] },
+  // Push/slide: both clips translate together (overflow:hidden clips them)
+  push_up:     { dur: 250, prevAnim: [{ opacity: 1, transform: "translateY(0%)" }, { opacity: 1, transform: "translateY(-100%)" }],   currAnim: [{ opacity: 1, transform: "translateY(100%)" }, { opacity: 1, transform: "translateY(0%)" }] },
+  slide_left:  { dur: 250, prevAnim: [{ opacity: 1, transform: "translateX(0%)" }, { opacity: 1, transform: "translateX(-100%)" }],   currAnim: [{ opacity: 1, transform: "translateX(100%)" }, { opacity: 1, transform: "translateX(0%)" }] },
+};
+
 const TransitionPreview = ({
   prevVideoUrl,
   prevTrimEnd,
@@ -75,49 +109,90 @@ const TransitionPreview = ({
   currTrimStart: number;
   transition: string;
 }) => {
-  const prevRef = useRef<HTMLVideoElement>(null);
-  const currRef = useRef<HTMLVideoElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const WINDOW = 1.5;
+  const prevRef    = useRef<HTMLVideoElement>(null);
+  const currRef    = useRef<HTMLVideoElement>(null);
+  const runningRef = useRef(false);
+  const WINDOW     = 1.5;
 
-  // Seek thumbnails to correct positions on mount
+  const [prevStyle, setPrevStyle] = useState<React.CSSProperties>({ opacity: 1 });
+  const [currStyle, setCurrStyle] = useState<React.CSSProperties>({ opacity: 0 });
+  const [overlayOp, setOverlayOp] = useState(0);
+  const [active, setActive]       = useState(false);
+
+  // Seek thumbnails to preview positions whenever key values change
   useEffect(() => {
+    if (runningRef.current) return;
     const prev = prevRef.current;
     const curr = currRef.current;
     if (prev) prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
     if (curr) curr.currentTime = currTrimStart;
-  }, [prevTrimEnd, currTrimStart]);
+    setPrevStyle({ opacity: 1 });
+    setCurrStyle({ opacity: 0 });
+    setOverlayOp(0);
+  }, [transition, prevTrimEnd, currTrimStart]);
 
-  // Update thumbnails when transition changes (seek to show current frames)
-  useEffect(() => {
-    if (!playing) {
-      const prev = prevRef.current;
-      const curr = currRef.current;
-      if (prev) prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
-      if (curr) curr.currentTime = currTrimStart;
-    }
-  }, [transition, playing, prevTrimEnd, currTrimStart]);
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  useEffect(() => () => { runningRef.current = false; }, []);
 
   const startPreview = useCallback(() => {
     const prev = prevRef.current;
     const curr = currRef.current;
-    if (!prev || !curr || playing) return;
-    setPlaying(true);
-    prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
-    prev.play().catch(() => {});
-    timerRef.current = setTimeout(() => {
-      prev.pause();
+    if (!prev || !curr || runningRef.current) return;
+    runningRef.current = true;
+    setActive(true);
+
+    const effect = EFFECTS[transition] ?? EFFECTS.cut;
+
+    const run = async () => {
+      // Apply initial styles (no CSS transition — instant snap to position)
+      setPrevStyle({ ...effect.prevAnim[0] });
+      setCurrStyle({ ...effect.currAnim[0] });
+      setOverlayOp(0);
+
+      // Seek and play prev clip
+      prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
       curr.currentTime = currTrimStart;
-      curr.play().catch(() => {});
-      timerRef.current = setTimeout(() => {
-        curr.pause();
-        setPlaying(false);
-      }, WINDOW * 1000);
-    }, WINDOW * 1000);
-  }, [playing, prevTrimEnd, currTrimStart]);
+      await prev.play().catch(() => {});
+      await sleep(WINDOW * 1000);
+      prev.pause();
+
+      // Two animation frames ensure React rendered initial styles before
+      // adding CSS transition — otherwise the browser skips the animation
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      // Apply final styles WITH CSS transition → browser animates
+      const css = `all ${effect.dur}ms ease`;
+      setPrevStyle({ ...effect.prevAnim[1], transition: css });
+      setCurrStyle({ ...effect.currAnim[1], transition: css });
+
+      // Flash/dip overlay
+      if (effect.overlay) {
+        setOverlayOp(0.92);
+        setTimeout(() => setOverlayOp(0), effect.dur * 0.4);
+      }
+
+      await sleep(effect.dur + 30);
+
+      // Play curr clip (remove transition prop first so future style changes are instant)
+      curr.currentTime = currTrimStart;
+      setCurrStyle({ ...effect.currAnim[1] });
+      await curr.play().catch(() => {});
+      await sleep(WINDOW * 1000);
+      curr.pause();
+
+      // Reset to thumbnail state
+      setPrevStyle({ opacity: 1 });
+      setCurrStyle({ opacity: 0 });
+      setOverlayOp(0);
+      prev.currentTime = Math.max(0, prevTrimEnd - WINDOW);
+      curr.currentTime = currTrimStart;
+      runningRef.current = false;
+      setActive(false);
+    };
+
+    run();
+  }, [transition, prevTrimEnd, currTrimStart]);
+
+  const effect = EFFECTS[transition] ?? EFFECTS.cut;
 
   return (
     <div className="space-y-1.5">
@@ -125,27 +200,52 @@ const TransitionPreview = ({
         <p className="text-xs text-muted-foreground">Preview cut</p>
         <button
           onClick={startPreview}
-          disabled={playing}
+          disabled={active}
           className="text-[10px] px-2 py-1 rounded border border-border/40 text-muted-foreground hover:border-primary/40 hover:text-primary/70 disabled:opacity-50 transition-colors"
         >
-          {playing ? "Playing…" : "▶ Preview"}
+          {active ? "Playing…" : "▶ Preview"}
         </button>
       </div>
-      <div className="flex items-center gap-2">
-        <div className="relative rounded overflow-hidden bg-black flex-shrink-0" style={{ width: "54px", aspectRatio: "9/16" }}>
-          <video ref={prevRef} src={prevVideoUrl} className="w-full h-full object-contain" preload="metadata" muted playsInline />
-        </div>
-        <div className="flex-1 flex flex-col items-center gap-1 text-center">
-          <ChevronsRight className="w-3 h-3 text-border/60" />
-          <span className="text-[9px] font-mono text-primary/70 border border-primary/20 px-1.5 py-0.5 rounded bg-primary/5">
-            {transition.replace(/_/g, " ")}
-          </span>
-          <ChevronsRight className="w-3 h-3 text-border/60" />
-        </div>
-        <div className="relative rounded overflow-hidden bg-black flex-shrink-0" style={{ width: "54px", aspectRatio: "9/16" }}>
-          <video ref={currRef} src={currVideoUrl} className="w-full h-full object-contain" preload="metadata" muted playsInline />
+      {/* Single stacked container — both clips overlaid so wipe/push/dissolve render accurately */}
+      <div className="flex justify-center">
+        <div
+          className="relative rounded overflow-hidden bg-black flex-shrink-0"
+          style={{ width: "66px", aspectRatio: "9/16" }}
+        >
+          <video
+            ref={prevRef}
+            src={prevVideoUrl}
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ ...prevStyle, zIndex: 1 }}
+            preload="metadata"
+            muted
+            playsInline
+          />
+          <video
+            ref={currRef}
+            src={currVideoUrl}
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ ...currStyle, zIndex: 2 }}
+            preload="metadata"
+            muted
+            playsInline
+          />
+          {effect.overlay && (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: effect.overlay,
+                opacity: overlayOp,
+                transition: `opacity ${effect.dur * 0.4}ms ease`,
+                zIndex: 10,
+              }}
+            />
+          )}
         </div>
       </div>
+      <p className="text-center text-[9px] font-mono text-primary/60">
+        {transition.replace(/_/g, " ")}
+      </p>
     </div>
   );
 };

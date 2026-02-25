@@ -43,6 +43,7 @@ const Index = () => {
           acceptAll={pipeline.acceptAll}
           rejectAll={pipeline.rejectAll}
           onRender={pipeline.renderAccepted}
+          onReset={pipeline.resetAll}
           running={pipeline.isRunning}
           outputInfo={pipeline.outputInfo}
           clearLogs={pipeline.clearLogs}

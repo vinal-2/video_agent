@@ -265,6 +265,23 @@ export function usePipeline() {
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
+  const resetAll = useCallback(async () => {
+    // Cancel if running, then wipe all local state so the UI returns to its
+    // initial blank state ready for a fresh pipeline run.
+    try {
+      if (status?.running) await cancelPipelineRequest();
+    } catch { /* ignore */ }
+    setLogs([]);
+    setSegmentStates({});
+    setTrimData({});
+    setGradeData({});
+    setTransitionData({});
+    setOutputInfo(null);
+    setError(null);
+    // Reset the segment signature so new segments will be initialised normally
+    lastSegmentsSignature.current = null;
+  }, [status?.running]);
+
   const phase: PipelinePhase = status?.phase ?? "idle";
   const isRunning = Boolean(status?.running);
   const clipCount = status?.clip_count ?? clips.length;
@@ -305,6 +322,7 @@ export function usePipeline() {
     acceptAll,
     rejectAll,
     clearLogs,
+    resetAll,
   };
 }
 

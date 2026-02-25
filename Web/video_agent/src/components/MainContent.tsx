@@ -7,6 +7,7 @@ import {
   Activity,
   AlertTriangle,
   PlayCircle,
+  RotateCcw,
 } from "lucide-react";
 import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
@@ -43,6 +44,7 @@ interface MainContentProps {
   acceptAll: () => void;
   rejectAll: () => void;
   onRender: () => Promise<void>;
+  onReset: () => Promise<void>;
   running: boolean;
   outputInfo: OutputInfo | null;
   clearLogs: () => void;
@@ -66,6 +68,7 @@ const MainContent = ({
   acceptAll,
   rejectAll,
   onRender,
+  onReset,
   running,
   outputInfo,
   clearLogs,
@@ -158,13 +161,25 @@ const MainContent = ({
             </span>
           )}
         </div>
-        <button
-          onClick={clearLogs}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors group"
-        >
-          <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform" />
-          Clear log
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={clearLogs}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors group"
+          >
+            <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            Clear log
+          </button>
+          {(segments.length > 0 || outputInfo || logs.length > 0) && !running && (
+            <button
+              onClick={() => onReset().catch(() => {})}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
+              title="Clear all segments, logs and output — ready for a new run"
+            >
+              <RotateCcw className="w-4 h-4 group-hover:rotate-[-45deg] transition-transform duration-200" />
+              New project
+            </button>
+          )}
+        </div>
       </div>
 
       {lastError && (
