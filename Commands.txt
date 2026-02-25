@@ -78,3 +78,41 @@ pwsh -File D:\video-agent\scripts\build_ui.ps1
 Web/video_agent npm install && npm run build
 All npm actions must run inside Web/video_agent (npm install && npm run build), after which python -m app at repo root serves the fresh build on http://localhost:5100.
 python -m app
+
+──────────────────────────────────────────────────────────────────────────────
+Git — commit and push
+──────────────────────────────────────────────────────────────────────────────
+Repo root:  d:\video-agent   (monorepo — backend + frontend)
+Remote:     https://github.com/vinal-2/video_agent  (branch: main)
+
+# Stage specific files (preferred — avoids accidentally including raw clips etc.)
+cd d:\video-agent
+git add app.py requirements.txt
+git add scripts/transitions.py scripts/editing_brain.py scripts/llm_planner.py
+git add scripts/analyze_and_edit.py  # (or whichever scripts changed)
+git add Web/video_agent/src/components/SegmentCard.tsx
+git add Web/video_agent/src/components/MainContent.tsx
+git add Web/video_agent/src/hooks/usePipeline.ts
+git add Web/video_agent/src/lib/api.ts
+git add Web/video_agent/src/pages/Index.tsx
+
+# Or stage everything that git is already tracking (safe — respects .gitignore)
+git add -u
+
+# Commit
+git commit -m "Brief description of changes"
+
+# Push
+git push origin master:main
+
+# Check status / what has changed
+git status
+git diff --stat HEAD
+
+# See recent commits
+git log --oneline -10
+
+Notes:
+- raw_clips/, output/, logs/, analysis/, .venv/, venv/ are all gitignored — safe to use git add -u
+- The local branch is named 'master'; GitHub branch is 'main' → always push as master:main
+- If GitHub rejects with "cannot force-push": branch protection is on — use master:main (normal push) not --force

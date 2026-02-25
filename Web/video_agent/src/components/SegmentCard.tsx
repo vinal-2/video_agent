@@ -26,10 +26,15 @@ const TRANSITIONS: Array<{ value: string; label: string; group: string }> = [
   { value: "flash_white", label: "Flash white", group: "Insert" },
   { value: "flash_black", label: "Flash black", group: "Insert" },
   { value: "dip_black",   label: "Dip black",   group: "Insert" },
+  { value: "dip_white",   label: "Dip white",   group: "Insert" },
   { value: "dissolve",    label: "Dissolve",    group: "Blend"  },
   { value: "fade_black",  label: "Fade black",  group: "Blend"  },
   { value: "wipe_up",     label: "Wipe up",     group: "Blend"  },
+  { value: "wipe_left",   label: "Wipe left",   group: "Blend"  },
   { value: "zoom_in",     label: "Zoom in",     group: "Blend"  },
+  { value: "zoom_out",    label: "Zoom out",    group: "Blend"  },
+  { value: "push_up",     label: "Push up",     group: "Blend"  },
+  { value: "slide_left",  label: "Slide left",  group: "Blend"  },
 ];
 
 const GRADE_SLIDERS: Array<{ key: keyof Omit<GradeSettings, "lut">; label: string }> = [
