@@ -352,6 +352,36 @@ def serve_output(filename):
     return send_from_directory(str(OUTPUT_DIR), filename)
 
 
+@app.route("/api/crop_auto", methods=["POST"])
+def api_crop_auto():
+    """
+    Detect the best static 9:16 crop offset for a segment using cv2 cascades.
+    Body: { video_path: str, start: float, end: float }
+    Returns: { x, y, w, h, source_w, source_h }
+    """
+    body = request.get_json(force=True) or {}
+    video_path = body.get("video_path", "")
+    start      = float(body.get("start", 0))
+    end        = float(body.get("end", 0))
+
+    if not video_path:
+        return jsonify({"error": "video_path required"}), 400
+
+    # Resolve: accept a bare filename (from raw_clips/) or an absolute path
+    p = Path(video_path)
+    if not p.is_absolute():
+        p = RAW_CLIPS / p.name
+    if not p.exists():
+        return jsonify({"error": f"Video not found: {p}"}), 404
+
+    try:
+        from scripts.smart_crop import compute_auto_crop
+        result = compute_auto_crop(str(p), start, end)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/output/latest")
 def api_output_latest():
     with _state_lock:

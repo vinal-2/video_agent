@@ -36,10 +36,12 @@ const Index = () => {
           trimData={pipeline.trimData}
           gradeData={pipeline.gradeData}
           transitionData={pipeline.transitionData}
+          cropData={pipeline.cropData}
           setSegmentState={pipeline.setSegmentState}
           updateTrim={pipeline.updateTrim}
           updateGrade={pipeline.updateGrade}
           updateTransition={pipeline.updateTransition}
+          updateCrop={pipeline.updateCrop}
           acceptAll={pipeline.acceptAll}
           rejectAll={pipeline.rejectAll}
           onRender={pipeline.renderAccepted}

@@ -9,7 +9,7 @@ import {
   PlayCircle,
   RotateCcw,
 } from "lucide-react";
-import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState } from "@/lib/api";
+import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 import SegmentCard from "@/components/SegmentCard";
 
@@ -37,10 +37,12 @@ interface MainContentProps {
   trimData: Record<number, TrimState>;
   gradeData: Record<number, GradeSettings>;
   transitionData: Record<number, string>;
+  cropData: Record<number, CropSettings>;
   setSegmentState: (index: number, decision: SegmentDecision) => void;
   updateTrim: (index: number, start: number, end: number) => void;
   updateGrade: (index: number, grade: GradeSettings) => void;
   updateTransition: (index: number, transition: string) => void;
+  updateCrop: (index: number, crop: CropSettings | null) => void;
   acceptAll: () => void;
   rejectAll: () => void;
   onRender: () => Promise<void>;
@@ -61,10 +63,12 @@ const MainContent = ({
   trimData,
   gradeData,
   transitionData,
+  cropData,
   setSegmentState,
   updateTrim,
   updateGrade,
   updateTransition,
+  updateCrop,
   acceptAll,
   rejectAll,
   onRender,
@@ -198,10 +202,12 @@ const MainContent = ({
             trimData={trimData}
             gradeData={gradeData}
             transitionData={transitionData}
+            cropData={cropData}
             setSegmentState={setSegmentState}
             updateTrim={updateTrim}
             updateGrade={updateGrade}
             updateTransition={updateTransition}
+            updateCrop={updateCrop}
             acceptAll={acceptAll}
             rejectAll={rejectAll}
             acceptedCount={acceptedCount}
@@ -260,10 +266,12 @@ interface ReviewPanelProps {
   trimData: Record<number, TrimState>;
   gradeData: Record<number, GradeSettings>;
   transitionData: Record<number, string>;
+  cropData: Record<number, CropSettings>;
   setSegmentState: (index: number, decision: SegmentDecision) => void;
   updateTrim: (index: number, start: number, end: number) => void;
   updateGrade: (index: number, grade: GradeSettings) => void;
   updateTransition: (index: number, transition: string) => void;
+  updateCrop: (index: number, crop: CropSettings | null) => void;
   acceptAll: () => void;
   rejectAll: () => void;
   acceptedCount: number;
@@ -278,10 +286,12 @@ const ReviewPanel = ({
   trimData,
   gradeData,
   transitionData,
+  cropData,
   setSegmentState,
   updateTrim,
   updateGrade,
   updateTransition,
+  updateCrop,
   acceptAll,
   rejectAll,
   acceptedCount,
@@ -402,6 +412,7 @@ const ReviewPanel = ({
         {segments.map((segment, index) => {
           const trim       = trimData[index]  ?? { start: segment.start, end: segment.end };
           const grade      = gradeData[index] ?? { brightness: 0, contrast: 0, saturation: 0, temp: 0, lut: "none" };
+          const crop       = cropData[index]  ?? null;
           const decision   = segmentStates[index]; // undefined = neutral (not yet decided)
 
           return (
@@ -412,12 +423,14 @@ const ReviewPanel = ({
               decision={decision}
               trim={trim}
               grade={grade}
+              crop={crop}
               transition={transitionData[index] ?? "cut"}
               prevSegment={index > 0 ? segments[index - 1] : null}
               prevTrim={index > 0 ? (trimData[index - 1] ?? { start: segments[index - 1].start, end: segments[index - 1].end }) : null}
               onDecision={(d) => setSegmentState(index, d)}
               onTrimChange={(s, e) => updateTrim(index, s, e)}
               onGradeChange={(g) => updateGrade(index, g)}
+              onCropChange={(c) => updateCrop(index, c)}
               onTransitionChange={(t) => updateTransition(index, t)}
               isExpanded={expandedIndex === index}
               onExpand={() => setExpandedIndex(index)}

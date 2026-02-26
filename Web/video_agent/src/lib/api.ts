@@ -21,6 +21,16 @@ export interface TrimState {
   end: number;
 }
 
+export interface CropSettings {
+  x: number;        // left edge in source pixels
+  y: number;        // always 0 — full-height crop
+  w: number;        // source_height * 9/16, rounded to even
+  h: number;        // source height
+  source_w: number; // original frame width
+  source_h: number; // original frame height
+  auto: boolean;    // true = computed by smart_crop, false = user-dragged
+}
+
 export interface Segment {
   start: number;
   end: number;
@@ -154,6 +164,22 @@ export async function renderSegmentsRequest(segments: Segment[], config: Pipelin
     }),
   );
   return res.json().catch(() => ({}));
+}
+
+export async function fetchCropAuto(
+  video_path: string,
+  start: number,
+  end: number,
+): Promise<CropSettings> {
+  const res = await ensureOk(
+    await fetch("/api/crop_auto", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_path, start, end }),
+    }),
+  );
+  const data = await res.json();
+  return { ...data, auto: true };
 }
 
 export async function cancelPipelineRequest() {

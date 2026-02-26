@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect, useCallback } from "react";
-import { Film, Play, Pause, ChevronDown } from "lucide-react";
+import { Film, Play, Pause, ChevronDown, Crop, RotateCcw, Loader2 } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Slider } from "@/components/ui/slider";
-import type { Segment, GradeSettings, TrimState } from "@/lib/api";
+import type { Segment, GradeSettings, TrimState, CropSettings } from "@/lib/api";
+import { fetchCropAuto } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 
 // CSS filter approximations for each LUT — live preview only.
@@ -250,6 +251,200 @@ const TransitionPreview = ({
   );
 };
 
+// ── Crop tool ─────────────────────────────────────────────────────────────────
+//
+// Shows a thumbnail of the segment's midframe with a draggable 9:16 crop box.
+// Only rendered when source is wider than 9:16 (landscape / square footage).
+// Overlay: dark mask covers the excluded regions; the box is draggable left/right.
+
+interface CropToolProps {
+  segment: Segment;
+  trim: TrimState;
+  crop: CropSettings | null;
+  onCropChange: (crop: CropSettings | null) => void;
+}
+
+const CropTool = ({ segment, trim, crop, onCropChange }: CropToolProps) => {
+  // All hooks must be declared unconditionally — early return is AFTER these.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ pointerX: number; cropX: number } | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [localX, setLocalX]     = useState<number | null>(null);
+
+  const fileName   = segment.video_path?.split(/[/\\]/).pop() ?? "";
+  const midTime    = (trim.start + trim.end) / 2;
+  const thumbUrl   = `/video/${encodeURIComponent(fileName)}#t=${midTime.toFixed(2)}`;
+
+  const sourceW = crop?.source_w ?? 0;
+  const sourceH = crop?.source_h ?? 0;
+  const isWider = sourceW > 0 && sourceH > 0 && sourceW / sourceH > 9 / 16 + 0.01;
+
+  // ── Auto-detect ──────────────────────────────────────────────────────────
+  const handleAutoDetect = useCallback(async () => {
+    if (!fileName) return;
+    setLoading(true);
+    try {
+      const result = await fetchCropAuto(fileName, trim.start, trim.end);
+      onCropChange(result);
+      setLocalX(null);
+    } catch (err) {
+      console.error("crop_auto failed", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [fileName, trim.start, trim.end, onCropChange]);
+
+  // Trigger auto-detect on first expand when source dimensions are unknown.
+  // The effect runs once (empty deps) — the ref guards against repeat calls.
+  const autoDetectRunRef = useRef(false);
+  useEffect(() => {
+    if (!crop && !autoDetectRunRef.current && fileName) {
+      autoDetectRunRef.current = true;
+      handleAutoDetect();
+    }
+  }, [crop, fileName, handleAutoDetect]);
+
+  // Don't render at all for already-9:16 footage (after hooks)
+  if (!isWider && !loading && !crop) return null;
+
+  // ── Drag logic ───────────────────────────────────────────────────────────
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!crop || !containerRef.current) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStartRef.current = { pointerX: e.clientX, cropX: crop.x };
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragStartRef.current || !crop || !containerRef.current) return;
+    const rect       = containerRef.current.getBoundingClientRect();
+    const thumbW     = rect.width;
+    const scaleX     = crop.source_w / thumbW; // source pixels per thumbnail pixel
+    const deltaSource = (e.clientX - dragStartRef.current.pointerX) * scaleX;
+    const newX       = Math.max(0, Math.min(
+      Math.round(dragStartRef.current.cropX + deltaSource),
+      crop.source_w - crop.w,
+    ));
+    // Update visual immediately, commit to parent
+    setLocalX(newX);
+    onCropChange({ ...crop, x: newX, auto: false });
+  };
+
+  const onPointerUp = () => {
+    dragStartRef.current = null;
+    setLocalX(null);
+  };
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  const displayCrop = crop ? { ...crop, x: localX ?? crop.x } : null;
+
+  // Calculate box position as % of source width for the overlay
+  const boxLeft  = displayCrop && displayCrop.source_w
+    ? (displayCrop.x / displayCrop.source_w) * 100
+    : null;
+  const boxRight = displayCrop && displayCrop.source_w
+    ? ((displayCrop.source_w - displayCrop.x - displayCrop.w) / displayCrop.source_w) * 100
+    : null;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Crop className="w-3.5 h-3.5 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">Crop / Reframe</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleAutoDetect}
+            disabled={loading}
+            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-border/40 text-muted-foreground hover:border-primary/40 hover:text-primary/70 disabled:opacity-50 transition-colors"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+            Auto-detect
+          </button>
+          {crop && (
+            <button
+              onClick={() => onCropChange(null)}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-border/40 text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors"
+              title="Remove crop (render will auto-centre)"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Thumbnail with crop overlay */}
+      <div
+        ref={containerRef}
+        className="relative overflow-hidden rounded bg-black select-none"
+        style={{ aspectRatio: `${displayCrop?.source_w ?? 16} / ${displayCrop?.source_h ?? 9}` }}
+      >
+        {/* Segment midframe thumbnail */}
+        <video
+          src={thumbUrl}
+          className="w-full h-full object-contain pointer-events-none"
+          preload="metadata"
+          muted
+          playsInline
+        />
+
+        {/* Dark mask — left of crop box */}
+        {boxLeft !== null && (
+          <div
+            className="absolute inset-y-0 left-0 bg-black/60 pointer-events-none"
+            style={{ width: `${boxLeft}%` }}
+          />
+        )}
+
+        {/* Dark mask — right of crop box */}
+        {boxRight !== null && (
+          <div
+            className="absolute inset-y-0 right-0 bg-black/60 pointer-events-none"
+            style={{ width: `${boxRight}%` }}
+          />
+        )}
+
+        {/* Crop box border + drag handle */}
+        {boxLeft !== null && boxRight !== null && (
+          <div
+            className="absolute inset-y-0 border-2 border-primary/80 cursor-ew-resize"
+            style={{ left: `${boxLeft}%`, right: `${boxRight}%` }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+          >
+            {/* Left drag handle indicator */}
+            <div className="absolute left-0 inset-y-0 w-4 flex items-center justify-center">
+              <div className="w-1 h-8 rounded-full bg-primary/80" />
+            </div>
+            {/* Right drag handle indicator */}
+            <div className="absolute right-0 inset-y-0 w-4 flex items-center justify-center">
+              <div className="w-1 h-8 rounded-full bg-primary/80" />
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          </div>
+        )}
+      </div>
+
+      {/* Crop coordinates readout */}
+      {displayCrop && (
+        <p className="text-[10px] font-mono text-muted-foreground">
+          Crop: x={displayCrop.x} · {displayCrop.w}×{displayCrop.h} from {displayCrop.source_w}×{displayCrop.source_h}
+          {displayCrop.auto && <span className="ml-1 text-primary/60">(auto)</span>}
+        </p>
+      )}
+    </div>
+  );
+};
+
 // ── SegmentCard ───────────────────────────────────────────────────────────────
 
 interface SegmentCardProps {
@@ -258,12 +453,14 @@ interface SegmentCardProps {
   decision: SegmentDecision | undefined;  // undefined = not yet decided (neutral)
   trim: TrimState;
   grade: GradeSettings;
+  crop: CropSettings | null;
   transition: string;
   prevSegment?: Segment | null;
   prevTrim?: TrimState | null;
   onDecision: (decision: SegmentDecision) => void;
   onTrimChange: (start: number, end: number) => void;
   onGradeChange: (grade: GradeSettings) => void;
+  onCropChange: (crop: CropSettings | null) => void;
   onTransitionChange: (transition: string) => void;
   isExpanded: boolean;
   onExpand: () => void;
@@ -278,12 +475,14 @@ const SegmentCard = ({
   decision,
   trim,
   grade,
+  crop,
   transition,
   prevSegment,
   prevTrim,
   onDecision,
   onTrimChange,
   onGradeChange,
+  onCropChange,
   onTransitionChange,
   isExpanded,
   onExpand,
@@ -535,6 +734,16 @@ const SegmentCard = ({
                   <SliderPrimitive.Thumb className="block h-4 w-1.5 rounded-sm border-2 border-primary bg-background cursor-ew-resize focus:outline-none focus:ring-1 focus:ring-primary/50" />
                   <SliderPrimitive.Thumb className="block h-4 w-1.5 rounded-sm border-2 border-primary bg-background cursor-ew-resize focus:outline-none focus:ring-1 focus:ring-primary/50" />
                 </SliderPrimitive.Root>
+              </div>
+
+              {/* Crop / Reframe — shown only for wider-than-9:16 source */}
+              <div onClick={(e) => e.stopPropagation()}>
+                <CropTool
+                  segment={segment}
+                  trim={trim}
+                  crop={crop}
+                  onCropChange={onCropChange}
+                />
               </div>
             </div>
 

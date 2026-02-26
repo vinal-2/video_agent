@@ -440,17 +440,34 @@ def _render_segment_ffmpeg(
     preset: str = "fast",
     audio_br: str = "128k",
     use_source_res: bool = False,
+    crop: dict | None = None,
 ) -> bool:
-    """Render one segment to a temp file via ffmpeg. Returns True on success."""
+    """Render one segment to a temp file via ffmpeg. Returns True on success.
+
+    If crop is provided (dict with x, y, w, h in source pixels), a crop filter
+    is prepended before the scale filter.  The crop establishes a 9:16 window;
+    subsequent scale/pad is then applied inside that window.
+    """
     import subprocess
     duration = end - start
 
+    # Build optional leading crop filter (user-set or auto-detected 9:16 window)
+    crop_prefix = ""
+    if crop and crop.get("w") and crop.get("h"):
+        cx, cy = int(crop["x"]), int(crop["y"])
+        cw, ch = int(crop["w"]), int(crop["h"])
+        crop_prefix = f"crop={cw}:{ch}:{cx}:{cy},"
+
     if use_source_res:
-        # 4K mode: no scaling, just color grade + ensure even dimensions
-        vf = f"crop=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,{grade_filter}"
+        # 4K mode: apply user crop (if any), then ensure even dimensions + grade
+        if crop_prefix:
+            vf = f"{crop_prefix}scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,{grade_filter}"
+        else:
+            vf = f"crop=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,{grade_filter}"
     else:
-        # Proxy/normal/high: scale + letterbox/pillarbox to target resolution
+        # Proxy/normal/high: user crop → scale to target → pad → grade
         vf = (
+            f"{crop_prefix}"
             f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
             f"setsar=1,"
@@ -596,10 +613,12 @@ def render_compilation(segments: List[Dict[str, Any]], output_path: Path):
             if lut_vf:
                 grade_filter = grade_filter + "," + lut_vf
 
+            seg_crop = seg.get("crop") or None
             ok = _render_segment_ffmpeg(
                 vp, start, end, seg_path, out_w, out_h, grade_filter, out_fps,
                 crf=crf, preset=preset, audio_br=audio_br,
                 use_source_res=use_source_res,
+                crop=seg_crop,
             )
             if ok:
                 seg_paths.append(seg_path)

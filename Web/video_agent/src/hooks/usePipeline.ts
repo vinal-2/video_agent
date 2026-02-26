@@ -5,6 +5,7 @@ import {
   PipelinePhase,
   GradeSettings,
   TrimState,
+  CropSettings,
   DEFAULT_GRADE,
   defaultConfig,
   OutputInfo,
@@ -45,6 +46,7 @@ export function usePipeline() {
   const [trimData, setTrimData] = useState<Record<number, TrimState>>({});
   const [gradeData, setGradeData] = useState<Record<number, GradeSettings>>({});
   const [transitionData, setTransitionData] = useState<Record<number, string>>({});
+  const [cropData, setCropData] = useState<Record<number, CropSettings>>({});
   const [outputInfo, setOutputInfo] = useState<OutputInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,11 +110,13 @@ export function usePipeline() {
         setTrimData(nextTrim);
         setGradeData(nextGrade);
         setTransitionData({});
+        setCropData({});
       } else {
         setSegmentStates({});
         setTrimData({});
         setGradeData({});
         setTransitionData({});
+        setCropData({});
       }
     }
   }, [status]);
@@ -197,17 +201,19 @@ export function usePipeline() {
   }, [config]);
 
   const renderAccepted = useCallback(async () => {
-    // Build enriched list from all segments so we can look up trim/grade by original index.
+    // Build enriched list from all segments so we can look up trim/grade/crop by original index.
     const enriched = segments
       .map((seg, idx) => {
-        const trim = trimData[idx];
+        const trim  = trimData[idx];
         const grade = gradeData[idx] ?? DEFAULT_GRADE;
+        const crop  = cropData[idx] ?? null;
         return {
           ...seg,
           trimStart: trim?.start ?? seg.start,
           trimEnd: trim?.end ?? seg.end,
           grade,
           transition_in: transitionData[idx] ?? "cut",
+          crop,
         };
       })
       .filter((_, idx) => segmentStates[idx] !== "rejected");
@@ -218,7 +224,7 @@ export function usePipeline() {
       setError(message);
       throw err;
     });
-  }, [segments, segmentStates, trimData, gradeData, transitionData, config]);
+  }, [segments, segmentStates, trimData, gradeData, transitionData, cropData, config]);
 
   const cancelPipeline = useCallback(async () => {
     setError(null);
@@ -241,6 +247,17 @@ export function usePipeline() {
 
   const updateGrade = useCallback((index: number, grade: GradeSettings) => {
     setGradeData((prev) => ({ ...prev, [index]: grade }));
+  }, []);
+
+  const updateCrop = useCallback((index: number, crop: CropSettings | null) => {
+    setCropData((prev) => {
+      if (crop === null) {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      }
+      return { ...prev, [index]: crop };
+    });
   }, []);
 
   const updateTransition = useCallback((index: number, transition: string) => {
@@ -276,6 +293,7 @@ export function usePipeline() {
     setTrimData({});
     setGradeData({});
     setTransitionData({});
+    setCropData({});
     setOutputInfo(null);
     setError(null);
     // Reset the segment signature so new segments will be initialised normally
@@ -301,6 +319,7 @@ export function usePipeline() {
     trimData,
     gradeData,
     transitionData,
+    cropData,
     acceptedSegments,
     outputInfo,
     error,
@@ -319,6 +338,7 @@ export function usePipeline() {
     updateTrim,
     updateGrade,
     updateTransition,
+    updateCrop,
     acceptAll,
     rejectAll,
     clearLogs,
