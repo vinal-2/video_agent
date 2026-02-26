@@ -6,6 +6,7 @@ import {
   GradeSettings,
   TrimState,
   CropSettings,
+  SamMaskSettings,
   DEFAULT_GRADE,
   defaultConfig,
   OutputInfo,
@@ -47,6 +48,7 @@ export function usePipeline() {
   const [gradeData, setGradeData] = useState<Record<number, GradeSettings>>({});
   const [transitionData, setTransitionData] = useState<Record<number, string>>({});
   const [cropData, setCropData] = useState<Record<number, CropSettings>>({});
+  const [samData, setSamData] = useState<Record<number, SamMaskSettings>>({});
   const [outputInfo, setOutputInfo] = useState<OutputInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,12 +113,14 @@ export function usePipeline() {
         setGradeData(nextGrade);
         setTransitionData({});
         setCropData({});
+        setSamData({});
       } else {
         setSegmentStates({});
         setTrimData({});
         setGradeData({});
         setTransitionData({});
         setCropData({});
+        setSamData({});
       }
     }
   }, [status]);
@@ -204,9 +208,11 @@ export function usePipeline() {
     // Build enriched list from all segments so we can look up trim/grade/crop by original index.
     const enriched = segments
       .map((seg, idx) => {
-        const trim  = trimData[idx];
-        const grade = gradeData[idx] ?? DEFAULT_GRADE;
-        const crop  = cropData[idx] ?? null;
+        const trim    = trimData[idx];
+        const grade   = gradeData[idx] ?? DEFAULT_GRADE;
+        const crop    = cropData[idx] ?? null;
+        const samRaw  = samData[idx] ?? null;
+        const sam_mask = (samRaw && samRaw.enabled) ? samRaw : null;
         return {
           ...seg,
           trimStart: trim?.start ?? seg.start,
@@ -214,6 +220,7 @@ export function usePipeline() {
           grade,
           transition_in: transitionData[idx] ?? "cut",
           crop,
+          sam_mask,
         };
       })
       .filter((_, idx) => segmentStates[idx] !== "rejected");
@@ -224,7 +231,7 @@ export function usePipeline() {
       setError(message);
       throw err;
     });
-  }, [segments, segmentStates, trimData, gradeData, transitionData, cropData, config]);
+  }, [segments, segmentStates, trimData, gradeData, transitionData, cropData, samData, config]);
 
   const cancelPipeline = useCallback(async () => {
     setError(null);
@@ -257,6 +264,17 @@ export function usePipeline() {
         return next;
       }
       return { ...prev, [index]: crop };
+    });
+  }, []);
+
+  const updateSamMask = useCallback((index: number, sam: SamMaskSettings | null) => {
+    setSamData((prev) => {
+      if (sam === null) {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      }
+      return { ...prev, [index]: sam };
     });
   }, []);
 
@@ -294,6 +312,7 @@ export function usePipeline() {
     setGradeData({});
     setTransitionData({});
     setCropData({});
+    setSamData({});
     setOutputInfo(null);
     setError(null);
     // Reset the segment signature so new segments will be initialised normally
@@ -320,6 +339,7 @@ export function usePipeline() {
     gradeData,
     transitionData,
     cropData,
+    samData,
     acceptedSegments,
     outputInfo,
     error,
@@ -339,6 +359,7 @@ export function usePipeline() {
     updateGrade,
     updateTransition,
     updateCrop,
+    updateSamMask,
     acceptAll,
     rejectAll,
     clearLogs,

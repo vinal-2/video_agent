@@ -182,6 +182,32 @@ export async function fetchCropAuto(
   return { ...data, auto: true };
 }
 
+export interface SamMaskSettings {
+  mask_b64: string;   // base64-encoded PNG — white=subject, black=background
+  width: number;      // source frame width
+  height: number;     // source frame height
+  point_x: number;    // fractional X used to generate mask (0.0–1.0)
+  point_y: number;    // fractional Y
+  enabled: boolean;   // when false, mask exists but split-grade is off
+}
+
+export async function fetchSamMask(
+  video_path: string,
+  timestamp: number,
+  point_x: number,
+  point_y: number,
+): Promise<SamMaskSettings> {
+  const res = await ensureOk(
+    await fetch("/api/sam_mask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_path, timestamp, point_x, point_y }),
+    }),
+  );
+  const data = await res.json();
+  return { ...data, point_x, point_y, enabled: true };
+}
+
 export async function cancelPipelineRequest() {
   const res = await ensureOk(
     await fetch("/api/cancel", {

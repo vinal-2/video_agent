@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect, useCallback } from "react";
-import { Film, Play, Pause, ChevronDown, Crop, RotateCcw, Loader2 } from "lucide-react";
+import { Film, Play, Pause, ChevronDown, Crop, RotateCcw, Loader2, Crosshair } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { Slider } from "@/components/ui/slider";
-import type { Segment, GradeSettings, TrimState, CropSettings } from "@/lib/api";
-import { fetchCropAuto } from "@/lib/api";
+import type { Segment, GradeSettings, TrimState, CropSettings, SamMaskSettings } from "@/lib/api";
+import { fetchCropAuto, fetchSamMask } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 
 // CSS filter approximations for each LUT — live preview only.
@@ -445,6 +445,192 @@ const CropTool = ({ segment, trim, crop, onCropChange }: CropToolProps) => {
   );
 };
 
+// ── SAM subject-isolation tool ────────────────────────────────────────────────
+//
+// Click on the video thumbnail to place a SAM point prompt.
+// The response is a base64 PNG mask which is rendered as a semi-transparent
+// lime overlay using CSS mask-image (luminance mode).
+// "Split grade" toggle: when enabled, background gets a desaturated/dimmed
+// treatment during render; when disabled, the mask exists but only the full
+// grade is applied uniformly.
+
+interface SamToolProps {
+  segment: Segment;
+  trim: TrimState;
+  sam: SamMaskSettings | null;
+  onSamChange: (sam: SamMaskSettings | null) => void;
+}
+
+const SamTool = ({ segment, trim, sam, onSamChange }: SamToolProps) => {
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const videoRef      = useRef<HTMLVideoElement>(null);
+  const [loading, setLoading]           = useState(false);
+  const [dotPercent, setDotPercent]     = useState<{ x: number; y: number } | null>(null);
+
+  const fileName = segment.video_path?.split(/[/\\]/).pop() ?? "";
+  const midTime  = (trim.start + trim.end) / 2;
+  const videoUrl = `/video/${encodeURIComponent(fileName)}`;
+
+  // Seek the thumbnail to mid-point when metadata loads
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !fileName) return;
+    const seek = () => { video.currentTime = midTime; };
+    if (video.readyState >= 1) {
+      seek();
+    } else {
+      video.addEventListener("loadedmetadata", seek, { once: true });
+    }
+  }, [fileName, midTime]);
+
+  // Sync dot position with the current mask's prompt point
+  useEffect(() => {
+    if (sam) {
+      setDotPercent({ x: sam.point_x * 100, y: sam.point_y * 100 });
+    } else {
+      setDotPercent(null);
+    }
+  }, [sam]);
+
+  const handleClick = useCallback(async (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current || loading) return;
+    const rect     = containerRef.current.getBoundingClientRect();
+    const cx       = e.clientX - rect.left;
+    const cy       = e.clientY - rect.top;
+    const contW    = rect.width;
+    const contH    = rect.height;
+
+    // Compute click fractions accounting for object-contain letterboxing
+    const vW = videoRef.current?.videoWidth  || contW;
+    const vH = videoRef.current?.videoHeight || contH;
+    const contRatio  = contW / contH;
+    const videoRatio = vW / vH;
+    let rendW = contW, rendH = contH, offX = 0, offY = 0;
+    if (videoRatio > contRatio) {
+      rendW = contW;   rendH = contW / videoRatio;
+      offY  = (contH - rendH) / 2;
+    } else {
+      rendH = contH;   rendW = contH * videoRatio;
+      offX  = (contW - rendW) / 2;
+    }
+    const point_x = Math.max(0, Math.min(1, (cx - offX) / rendW));
+    const point_y = Math.max(0, Math.min(1, (cy - offY) / rendH));
+
+    // Place dot at raw container fraction for immediate visual feedback
+    setDotPercent({ x: (cx / contW) * 100, y: (cy / contH) * 100 });
+
+    setLoading(true);
+    try {
+      const result = await fetchSamMask(fileName, midTime, point_x, point_y);
+      onSamChange(result);
+    } catch (err) {
+      console.error("sam_mask failed", err);
+      setDotPercent(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, fileName, midTime, onSamChange]);
+
+  const maskDataUrl = sam ? `data:image/png;base64,${sam.mask_b64}` : null;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Crosshair className="w-3.5 h-3.5 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">Subject Mask</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {sam && (
+            <button
+              onClick={() => onSamChange({ ...sam, enabled: !sam.enabled })}
+              className={`text-[10px] px-2 py-1 rounded border transition-colors ${
+                sam.enabled
+                  ? "border-primary/50 text-primary bg-primary/10"
+                  : "border-border/40 text-muted-foreground hover:border-primary/40 hover:text-primary/70"
+              }`}
+            >
+              Split grade
+            </button>
+          )}
+          {sam && (
+            <button
+              onClick={() => { onSamChange(null); setDotPercent(null); }}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-border/40 text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Click-to-segment thumbnail */}
+      <div
+        ref={containerRef}
+        className="relative overflow-hidden rounded bg-black select-none cursor-crosshair"
+        style={{ aspectRatio: "9/16", maxHeight: "200px" }}
+        onClick={handleClick}
+      >
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          className="w-full h-full object-contain pointer-events-none"
+          preload="metadata"
+          muted
+          playsInline
+        />
+
+        {/* Lime-green mask overlay — luminance mask so white=show, black=hide */}
+        {maskDataUrl && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundColor: "hsl(82 80% 52% / 0.4)",
+              maskImage: `url("${maskDataUrl}")`,
+              WebkitMaskImage: `url("${maskDataUrl}")`,
+              maskMode: "luminance" as React.CSSProperties["maskMode"],
+              WebkitMaskMode: "luminance",
+              maskSize: "contain",
+              WebkitMaskSize: "contain",
+              maskRepeat: "no-repeat",
+              WebkitMaskRepeat: "no-repeat",
+              maskPosition: "center",
+              WebkitMaskPosition: "center",
+            } as React.CSSProperties}
+          />
+        )}
+
+        {/* Click-point indicator dot */}
+        {dotPercent && !loading && (
+          <div
+            className="absolute w-3.5 h-3.5 pointer-events-none"
+            style={{
+              left: `${dotPercent.x}%`,
+              top: `${dotPercent.y}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+          >
+            <div className="w-full h-full rounded-full border-2 border-primary bg-primary/50 shadow-sm" />
+          </div>
+        )}
+
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          </div>
+        )}
+      </div>
+
+      <p className="text-[10px] font-mono text-muted-foreground">
+        {sam
+          ? `Mask: ${sam.width}×${sam.height} · split grade ${sam.enabled ? "on" : "off"}`
+          : "Click on the subject to isolate it"}
+      </p>
+    </div>
+  );
+};
+
 // ── SegmentCard ───────────────────────────────────────────────────────────────
 
 interface SegmentCardProps {
@@ -454,6 +640,7 @@ interface SegmentCardProps {
   trim: TrimState;
   grade: GradeSettings;
   crop: CropSettings | null;
+  sam: SamMaskSettings | null;
   transition: string;
   prevSegment?: Segment | null;
   prevTrim?: TrimState | null;
@@ -461,6 +648,7 @@ interface SegmentCardProps {
   onTrimChange: (start: number, end: number) => void;
   onGradeChange: (grade: GradeSettings) => void;
   onCropChange: (crop: CropSettings | null) => void;
+  onSamChange: (sam: SamMaskSettings | null) => void;
   onTransitionChange: (transition: string) => void;
   isExpanded: boolean;
   onExpand: () => void;
@@ -476,6 +664,7 @@ const SegmentCard = ({
   trim,
   grade,
   crop,
+  sam,
   transition,
   prevSegment,
   prevTrim,
@@ -483,6 +672,7 @@ const SegmentCard = ({
   onTrimChange,
   onGradeChange,
   onCropChange,
+  onSamChange,
   onTransitionChange,
   isExpanded,
   onExpand,
@@ -743,6 +933,16 @@ const SegmentCard = ({
                   trim={trim}
                   crop={crop}
                   onCropChange={onCropChange}
+                />
+              </div>
+
+              {/* SAM subject isolation */}
+              <div onClick={(e) => e.stopPropagation()}>
+                <SamTool
+                  segment={segment}
+                  trim={trim}
+                  sam={sam}
+                  onSamChange={onSamChange}
                 />
               </div>
             </div>

@@ -37,11 +37,13 @@ const Index = () => {
           gradeData={pipeline.gradeData}
           transitionData={pipeline.transitionData}
           cropData={pipeline.cropData}
+          samData={pipeline.samData}
           setSegmentState={pipeline.setSegmentState}
           updateTrim={pipeline.updateTrim}
           updateGrade={pipeline.updateGrade}
           updateTransition={pipeline.updateTransition}
           updateCrop={pipeline.updateCrop}
+          updateSamMask={pipeline.updateSamMask}
           acceptAll={pipeline.acceptAll}
           rejectAll={pipeline.rejectAll}
           onRender={pipeline.renderAccepted}

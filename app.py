@@ -352,6 +352,39 @@ def serve_output(filename):
     return send_from_directory(str(OUTPUT_DIR), filename)
 
 
+@app.route("/api/sam_mask", methods=["POST"])
+def api_sam_mask():
+    """
+    Run SAM ViT-B on a segment frame to generate a subject mask.
+    Body: { video_path: str, timestamp: float, point_x: float, point_y: float }
+    Returns: { mask_b64: str, width: int, height: int }
+    Synchronous — runs SAM, returns when done (~5s on GPU, ~30s on CPU).
+    """
+    body       = request.get_json(force=True) or {}
+    video_path = body.get("video_path", "")
+    timestamp  = float(body.get("timestamp", 0))
+    point_x    = float(body.get("point_x", 0.5))
+    point_y    = float(body.get("point_y", 0.5))
+
+    if not video_path:
+        return jsonify({"error": "video_path required"}), 400
+
+    p = Path(video_path)
+    if not p.is_absolute():
+        p = RAW_CLIPS / p.name
+    if not p.exists():
+        return jsonify({"error": f"Video not found: {p}"}), 404
+
+    try:
+        from scripts.sam_helper import run_sam
+        mask_b64, width, height = run_sam(str(p), timestamp, point_x, point_y)
+        return jsonify({"mask_b64": mask_b64, "width": width, "height": height})
+    except ImportError as exc:
+        return jsonify({"error": str(exc)}), 501   # missing segment_anything dep
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/crop_auto", methods=["POST"])
 def api_crop_auto():
     """

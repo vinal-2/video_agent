@@ -441,58 +441,115 @@ def _render_segment_ffmpeg(
     audio_br: str = "128k",
     use_source_res: bool = False,
     crop: dict | None = None,
+    sam_mask: dict | None = None,
 ) -> bool:
     """Render one segment to a temp file via ffmpeg. Returns True on success.
 
-    If crop is provided (dict with x, y, w, h in source pixels), a crop filter
-    is prepended before the scale filter.  The crop establishes a 9:16 window;
-    subsequent scale/pad is then applied inside that window.
+    crop     — dict with {x, y, w, h} in source pixels; prepends a crop filter
+               before scale/pad to establish a 9:16 window.
+    sam_mask — dict with {mask_b64, ready, enabled}; when ready+enabled, splits
+               the grade into foreground (full) and background (desaturated/dim)
+               branches merged by the binary mask (SAM subject isolation).
     """
-    import subprocess
+    import base64, subprocess
     duration = end - start
 
-    # Build optional leading crop filter (user-set or auto-detected 9:16 window)
+    # ── User crop prefix ──────────────────────────────────────────────────────
     crop_prefix = ""
     if crop and crop.get("w") and crop.get("h"):
         cx, cy = int(crop["x"]), int(crop["y"])
         cw, ch = int(crop["w"]), int(crop["h"])
         crop_prefix = f"crop={cw}:{ch}:{cx}:{cy},"
 
+    # ── Preprocessing filter (crop + scale/pad, without grade) ───────────────
     if use_source_res:
-        # 4K mode: apply user crop (if any), then ensure even dimensions + grade
         if crop_prefix:
-            vf = f"{crop_prefix}scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,{grade_filter}"
+            proc_vf  = f"{crop_prefix}scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
+            mask_vf  = f"{crop_prefix}scale=trunc(iw/2)*2:trunc(ih/2)*2"
         else:
-            vf = f"crop=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,{grade_filter}"
+            proc_vf  = "crop=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
+            mask_vf  = "scale=trunc(iw/2)*2:trunc(ih/2)*2"
     else:
-        # Proxy/normal/high: user crop → scale to target → pad → grade
-        vf = (
+        proc_vf = (
             f"{crop_prefix}"
             f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-            f"setsar=1,"
-            f"{grade_filter}"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
         )
+        mask_vf = (f"{crop_prefix}scale={width}:{height}"
+                   if crop_prefix else f"scale={width}:{height}")
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(start),
-        "-i", str(video_path),
-        "-t", str(duration),
-        "-vf", vf,
-        "-r", str(fps),
-        "-c:v", "libx264",
-        "-preset", preset,
-        "-crf", crf,
-        "-c:a", "aac", "-b:a", audio_br,
-        "-movflags", "+faststart",
-        str(out_path),
-    ]
+    # ── SAM split-grade mode ──────────────────────────────────────────────────
+    use_sam = bool(
+        sam_mask
+        and sam_mask.get("ready")
+        and sam_mask.get("enabled", True)
+        and sam_mask.get("mask_b64")
+    )
+    tmp_mask: Path | None = None
+
+    if use_sam:
+        tmp_mask = out_path.parent / f"_sam_{out_path.stem}.png"
+        try:
+            tmp_mask.write_bytes(base64.b64decode(sam_mask["mask_b64"]))
+        except Exception as exc:
+            print(f"  [warn] Failed to decode SAM mask: {exc} — falling back to plain grade")
+            use_sam = False
+            tmp_mask = None
+
+    if use_sam:
+        # fg gets the full user grade; bg gets desaturated + dimmed version
+        fg_grade = grade_filter or "null"
+        bg_desaturate = "hue=s=0.3,colorlevels=rimax=0.85:gimax=0.85:bimax=0.85"
+        bg_grade = f"{grade_filter},{bg_desaturate}" if grade_filter else bg_desaturate
+
+        filter_complex = (
+            f"[0:v]{proc_vf},split[fg][bg];"
+            f"[fg]{fg_grade}[fg_graded];"
+            f"[bg]{bg_grade}[bg_graded];"
+            f"[1:v]{mask_vf}[mask_s];"
+            f"[bg_graded][fg_graded][mask_s]maskedmerge[v]"
+        )
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start), "-t", str(duration),
+            "-i", str(video_path),
+            "-loop", "1", "-i", str(tmp_mask),
+            "-filter_complex", filter_complex,
+            "-map", "[v]", "-map", "0:a?",
+            "-r", str(fps),
+            "-c:v", "libx264", "-preset", preset, "-crf", crf,
+            "-c:a", "aac", "-b:a", audio_br,
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+    else:
+        # Normal single-grade path (no SAM)
+        vf = f"{proc_vf},{grade_filter}" if grade_filter else proc_vf
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", str(video_path),
+            "-t", str(duration),
+            "-vf", vf,
+            "-r", str(fps),
+            "-c:v", "libx264",
+            "-preset", preset,
+            "-crf", crf,
+            "-c:a", "aac", "-b:a", audio_br,
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+
     result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
+    ok = result.returncode == 0
+    if not ok:
         print(f"  [warn] ffmpeg failed for {video_path.name}: {result.stderr[-300:]}")
-        return False
-    return True
+    if tmp_mask:
+        try:
+            tmp_mask.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return ok
 
 
 
@@ -613,12 +670,14 @@ def render_compilation(segments: List[Dict[str, Any]], output_path: Path):
             if lut_vf:
                 grade_filter = grade_filter + "," + lut_vf
 
-            seg_crop = seg.get("crop") or None
+            seg_crop     = seg.get("crop")     or None
+            seg_sam_mask = seg.get("sam_mask") or None
             ok = _render_segment_ffmpeg(
                 vp, start, end, seg_path, out_w, out_h, grade_filter, out_fps,
                 crf=crf, preset=preset, audio_br=audio_br,
                 use_source_res=use_source_res,
                 crop=seg_crop,
+                sam_mask=seg_sam_mask,
             )
             if ok:
                 seg_paths.append(seg_path)

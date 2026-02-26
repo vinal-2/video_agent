@@ -9,7 +9,7 @@ import {
   PlayCircle,
   RotateCcw,
 } from "lucide-react";
-import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings } from "@/lib/api";
+import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings, SamMaskSettings } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 import SegmentCard from "@/components/SegmentCard";
 
@@ -38,11 +38,13 @@ interface MainContentProps {
   gradeData: Record<number, GradeSettings>;
   transitionData: Record<number, string>;
   cropData: Record<number, CropSettings>;
+  samData: Record<number, SamMaskSettings>;
   setSegmentState: (index: number, decision: SegmentDecision) => void;
   updateTrim: (index: number, start: number, end: number) => void;
   updateGrade: (index: number, grade: GradeSettings) => void;
   updateTransition: (index: number, transition: string) => void;
   updateCrop: (index: number, crop: CropSettings | null) => void;
+  updateSamMask: (index: number, sam: SamMaskSettings | null) => void;
   acceptAll: () => void;
   rejectAll: () => void;
   onRender: () => Promise<void>;
@@ -64,11 +66,13 @@ const MainContent = ({
   gradeData,
   transitionData,
   cropData,
+  samData,
   setSegmentState,
   updateTrim,
   updateGrade,
   updateTransition,
   updateCrop,
+  updateSamMask,
   acceptAll,
   rejectAll,
   onRender,
@@ -203,11 +207,13 @@ const MainContent = ({
             gradeData={gradeData}
             transitionData={transitionData}
             cropData={cropData}
+            samData={samData}
             setSegmentState={setSegmentState}
             updateTrim={updateTrim}
             updateGrade={updateGrade}
             updateTransition={updateTransition}
             updateCrop={updateCrop}
+            updateSamMask={updateSamMask}
             acceptAll={acceptAll}
             rejectAll={rejectAll}
             acceptedCount={acceptedCount}
@@ -267,11 +273,13 @@ interface ReviewPanelProps {
   gradeData: Record<number, GradeSettings>;
   transitionData: Record<number, string>;
   cropData: Record<number, CropSettings>;
+  samData: Record<number, SamMaskSettings>;
   setSegmentState: (index: number, decision: SegmentDecision) => void;
   updateTrim: (index: number, start: number, end: number) => void;
   updateGrade: (index: number, grade: GradeSettings) => void;
   updateTransition: (index: number, transition: string) => void;
   updateCrop: (index: number, crop: CropSettings | null) => void;
+  updateSamMask: (index: number, sam: SamMaskSettings | null) => void;
   acceptAll: () => void;
   rejectAll: () => void;
   acceptedCount: number;
@@ -287,11 +295,13 @@ const ReviewPanel = ({
   gradeData,
   transitionData,
   cropData,
+  samData,
   setSegmentState,
   updateTrim,
   updateGrade,
   updateTransition,
   updateCrop,
+  updateSamMask,
   acceptAll,
   rejectAll,
   acceptedCount,
@@ -413,6 +423,7 @@ const ReviewPanel = ({
           const trim       = trimData[index]  ?? { start: segment.start, end: segment.end };
           const grade      = gradeData[index] ?? { brightness: 0, contrast: 0, saturation: 0, temp: 0, lut: "none" };
           const crop       = cropData[index]  ?? null;
+          const sam        = samData[index]   ?? null;
           const decision   = segmentStates[index]; // undefined = neutral (not yet decided)
 
           return (
@@ -424,6 +435,7 @@ const ReviewPanel = ({
               trim={trim}
               grade={grade}
               crop={crop}
+              sam={sam}
               transition={transitionData[index] ?? "cut"}
               prevSegment={index > 0 ? segments[index - 1] : null}
               prevTrim={index > 0 ? (trimData[index - 1] ?? { start: segments[index - 1].start, end: segments[index - 1].end }) : null}
@@ -431,6 +443,7 @@ const ReviewPanel = ({
               onTrimChange={(s, e) => updateTrim(index, s, e)}
               onGradeChange={(g) => updateGrade(index, g)}
               onCropChange={(c) => updateCrop(index, c)}
+              onSamChange={(s) => updateSamMask(index, s)}
               onTransitionChange={(t) => updateTransition(index, t)}
               isExpanded={expandedIndex === index}
               onExpand={() => setExpandedIndex(index)}
