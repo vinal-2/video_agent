@@ -17,6 +17,60 @@ tested end-to-end. Do not start Phase 3 until Phase 2 is tested.
 
 ---
 
+## Implementation Status
+
+All three phases have been implemented and committed. End-to-end testing has **not** been performed — the testing gates were bypassed at user request.
+
+### Phase 1 — Smart Crop / Reframe ✅ Implemented (commit `dc08832`)
+
+| Requirement | Status |
+|-------------|--------|
+| `scripts/smart_crop.py` — face/body cascade + median X crop computation | ✅ Done |
+| `analyze_and_edit.py` — crop filter prepended before scale filter in `_render_segment_ffmpeg()` | ✅ Done |
+| `app.py` — `POST /api/crop_auto` endpoint | ✅ Done |
+| `SegmentCard.tsx` — `CropTool` component with drag handle + auto-detect + reset | ✅ Done |
+| `usePipeline.ts` — `cropData`, `updateCrop()`, crop included in render payload | ✅ Done |
+| `MainContent.tsx` / `Index.tsx` — prop wiring | ✅ Done |
+
+### Phase 2 — SAM Subject Isolation ✅ Implemented (commit `c17b42d`)
+
+| Requirement | Status |
+|-------------|--------|
+| `scripts/sam_helper.py` — SAM ViT-B point-prompt mask generation | ✅ Done |
+| `analyze_and_edit.py` — split-grade filter chain in `_render_segment_ffmpeg()` | ✅ Done |
+| `app.py` — `POST /api/sam_mask` endpoint | ✅ Done |
+| `SegmentCard.tsx` — `SamTool` component: click-to-segment, lime-green mask overlay, split-grade toggle | ✅ Done |
+| `usePipeline.ts` — `samData`, `updateSamMask()`, `sam_mask` in render payload (only if `enabled=true`) | ✅ Done |
+| `src/lib/api.ts` — `SamMaskSettings` interface, `fetchSamMask()` | ✅ Done |
+| `MainContent.tsx` / `Index.tsx` — prop wiring | ✅ Done |
+
+### Phase 3 — ProPainter Inpaint ✅ Implemented (commit `689ad82`)
+
+| Requirement | Status |
+|-------------|--------|
+| `scripts/inpaint_worker.py` — ffmpeg extraction, ProPainter subprocess, tqdm progress parsing, status JSON | ✅ Done |
+| `app.py` — `POST /api/inpaint/start`, `GET /api/inpaint/status/<id>`, `POST /api/inpaint/cancel/<id>` | ✅ Done |
+| `app.py` — `_inpaint_jobs` module-level dict + `_inpaint_lock` | ✅ Done |
+| `src/components/InpaintTab.tsx` — `DrawRegionModal` canvas + per-segment rows + progress bar + Render button | ✅ Done |
+| `src/components/MainContent.tsx` — 4th "Inpaint" tab, disabled until `phase === "done"` | ✅ Done |
+| `src/hooks/usePipeline.ts` — `inpaintJobs` state, 5s polling, `beginInpaint()`, `removeInpaintJob()`, `renderWithInpainting()` | ✅ Done |
+| `src/lib/api.ts` — `InpaintJobStatus`, `InpaintJob` interfaces, `startInpaintJob()`, `getInpaintStatus()`, `cancelInpaintJob()` | ✅ Done |
+| `src/pages/Index.tsx` — prop wiring | ✅ Done |
+
+### Spec deviations (intentional — based on actual ProPainter behaviour)
+
+| Spec said | What was built | Reason |
+|-----------|---------------|--------|
+| `--mask` points to a **directory** of per-frame PNGs (`00000.png`, `00001.png`, …) | `--mask` points to a **single PNG** | ProPainter's `read_mask()` accepts a single PNG and reuses it via `flow_masks = flow_masks * length` — no per-frame prep needed |
+| `--cpu` flag to force CPU mode | Flag omitted | `--cpu` does not exist in ProPainter's argparse; device is auto-selected via `get_device()` |
+| `--fp16` reduces memory on CPU | Flag retained | ProPainter silently ignores `--fp16` on CPU — harmless to include |
+| `inpaint_phase` added to `_pipeline_state` | Module-level `_inpaint_jobs` dict + `_inpaint_lock` | Functionally equivalent; inpaint state is independent of pipeline state |
+| `src/context/PipelineContext.tsx` modified for Phase 3 | No changes to that file | Project uses `usePipeline.ts` hook instead; CLAUDE.md architecture note was pre-refactor |
+
+---
+
+---
+
 ## Current pipeline (do not break this)
 
 ```
@@ -522,6 +576,8 @@ exist, `POST /api/inpaint/start` must return a clear error:
 
 ## Testing checklist — verify each phase before proceeding
 
+> **Note:** Code for all phases is implemented. None of the items below have been verified end-to-end yet.
+
 ### Phase 1 checklist
 - [ ] `python -c "from scripts.smart_crop import compute_auto_crop; print('ok')"` succeeds
 - [ ] `POST /api/crop_auto` returns `{ x, y, w, h, source_w, source_h }` for a real clip
@@ -532,7 +588,7 @@ exist, `POST /api/inpaint/start` must return a clear error:
 
 ### Phase 2 checklist
 - [ ] `python -c "from scripts.sam_helper import run_sam; print('ok')"` succeeds
-- [ ] SAM checkpoint downloads automatically on first use
+- [ ] SAM checkpoint downloads automatically on first use (`style/sam_vit_b.pth`, ~375 MB)
 - [ ] `POST /api/sam_mask` returns a base64 PNG within 30s
 - [ ] Clicking a subject in the Review UI shows the green mask overlay
 - [ ] Rendering with SAM mask set produces visually distinct subject/background grades
@@ -542,9 +598,9 @@ exist, `POST /api/inpaint/start` must return a clear error:
 - [ ] `python -m scripts.inpaint_worker --help` succeeds
 - [ ] `POST /api/inpaint/start` returns `{ job_id }` immediately
 - [ ] Status file appears at `output/inpaint_jobs/<job_id>.json` within 5s
-- [ ] `GET /api/inpaint/status/<job_id>` returns progress updates
+- [ ] `GET /api/inpaint/status/<job_id>` returns progress updates during a run
 - [ ] Inpaint tab is disabled when phase is not "done"
 - [ ] Inpaint tab becomes active after successful render
 - [ ] Draw Region modal opens and allows freehand drawing
-- [ ] "Render with Inpainting" replaces the inpainted segment's video_path
-- [ ] "Skip Inpaint" dismisses the tab without affecting the output video
+- [ ] "Render with Inpainting" replaces the inpainted segment's `video_path` (and resets `start=0`, `end=duration`)
+- [ ] "Skip Inpaint" navigates to the Output tab without affecting the output video

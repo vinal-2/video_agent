@@ -116,3 +116,26 @@ Notes:
 - raw_clips/, output/, logs/, analysis/, .venv/, venv/ are all gitignored — safe to use git add -u
 - The local branch is named 'master'; GitHub branch is 'main' → always push as master:main
 - If GitHub rejects with "cannot force-push": branch protection is on — use master:main (normal push) not --force
+
+
+The three prompts you'll actually use:
+
+Every morning when you open VS Code, paste this first:
+
+Read CLAUDE.md, then read the last entry in SESSIONS.md.
+Summarise the current state of the project in 3 sentences,
+list any known broken items, and tell me what we should
+work on first today.
+
+Every time you finish a session, paste this before closing:
+
+Update SESSIONS.md with a new entry for this session.
+Follow the format in the file exactly. Be specific about
+file names and line numbers. Make "Next session starts with"
+a single concrete command or action, not a vague goal.
+
+When something unexpectedly breaks mid-session:
+
+Before fixing this, add a "Broken" note to the current
+SESSIONS.md entry with the error, the file, and the line
+number if known.

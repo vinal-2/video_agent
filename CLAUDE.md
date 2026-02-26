@@ -18,15 +18,30 @@ video_agent/
 │   ├── components/
 │   │   ├── DashboardHeader.tsx   # Live status pill + elapsed timer
 │   │   ├── PipelineSidebar.tsx   # Pipeline config + Run button
-│   │   ├── MainContent.tsx       # Tab container: Log / Review / Output
-│   │   └── SegmentCard.tsx       # Inline-expand card: video + trim + grade
+│   │   ├── MainContent.tsx       # Tab container: Log / Review / Output / Inpaint
+│   │   ├── SegmentCard.tsx       # Inline-expand card: video + trim + grade + crop + SAM
+│   │   └── InpaintTab.tsx        # ProPainter inpaint tab (skippable)
+│   ├── hooks/
+│   │   └── usePipeline.ts        # Pipeline state hook (crop, SAM, inpaint, transitions)
+│   ├── lib/
+│   │   └── api.ts                # Typed fetch wrappers for all Flask endpoints
 │   └── pages/
 │       └── Index.tsx             # Root — wraps everything in PipelineProvider
 │
-└── [Python backend — separate repo/folder]
+└── [Python backend]
     ├── app.py                    # Flask server
-    ├── pipeline/                 # AI scoring, segmentation, ffmpeg render
-    └── raw_clips/                # Source video files
+    ├── scripts/
+    │   ├── analyze_and_edit.py   # Main pipeline entry point + ffmpeg render
+    │   ├── editing_brain.py      # Narrative-aware segment selection
+    │   ├── transitions.py        # Transition catalog (14 types, Phase 1+2)
+    │   ├── llm_planner.py        # LM Studio LLM reordering (advisory only)
+    │   ├── semantic_siglip.py    # SigLIP + LAION aesthetic enrichment
+    │   ├── smart_crop.py         # Subject-tracking 9:16 crop computation
+    │   ├── sam_helper.py         # SAM ViT-B point-prompt mask generation
+    │   └── inpaint_worker.py     # ProPainter subprocess wrapper
+    ├── raw_clips/                # Source video files
+    ├── style_profiles/           # Template JSON files
+    └── ProPainter/               # Installed at D:\video-agent\ProPainter\
 ```
 
 ---
@@ -38,93 +53,87 @@ video_agent/
 | Framework | React 18 + TypeScript |
 | Build | Vite |
 | Styling | Tailwind CSS v3 + shadcn/ui |
-| Components | Radix UI primitives (all already installed) |
-| State | React Context (`PipelineContext`) — no Redux/Zustand |
+| Components | Radix UI primitives |
+| State | React Context (`PipelineContext`) + `usePipeline.ts` hook |
 | Routing | React Router v6 |
 | Icons | Lucide React |
-| Backend | Python Flask (separate process, not in this repo) |
+| Backend | Python Flask (separate process) |
 
 ---
 
 ## Design System
 
-The design uses a **dark navy + lime green** palette. Always use existing CSS variables and utility classes — never hardcode colours.
+Dark navy + lime green palette. Always use CSS variables — never hardcode colours.
 
-### Key CSS variables (defined in `src/index.css`)
+### Key CSS variables (`src/index.css`)
 ```
 --background       dark navy base
 --foreground       near-white text
---primary          lime green (#9ef060 approx, hsl 82 80% 52%)
---primary-foreground  dark (text on primary buttons)
+--primary          lime green (hsl 82 80% 52%)
+--primary-foreground  dark text on primary buttons
 --muted-foreground  grey secondary text
---destructive      red (for reject/error states)
---border           subtle border colour
---status-online    green dot
---status-idle      amber dot
+--destructive      red (reject/error)
+--border           subtle border
 ```
 
-### Utility classes (use these, don't reinvent them)
+### Utility classes
 ```
-glass-surface      frosted glass panel background
+glass-surface      frosted glass panel
 glass-card         lighter frosted card
-surface-elevated   raised surface with subtle gradient
-surface-sunken     recessed input background
+surface-elevated   raised surface
+surface-sunken     recessed input
 glow-primary       green glow shadow
-glow-primary-strong  stronger green glow (for Run button)
-gradient-primary-btn  lime green gradient background
+gradient-primary-btn  lime green gradient
 text-gradient      lime gradient text
-dot-grid           background dot pattern
-scanline           subtle scanline overlay
 ```
 
 ### Fonts
-- **Body:** `Outfit` (sans-serif) — headings, labels, UI text
-- **Monospace:** `JetBrains Mono` — file paths, timecodes, log output, numeric values
+- **Body:** `Outfit` — headings, labels, UI text
+- **Mono:** `JetBrains Mono` — file paths, timecodes, log output
 
 ---
 
 ## State Management
 
-**Everything goes through `PipelineContext`.** Read `src/context/PipelineContext.tsx` before touching any component.
+Read `PipelineContext.tsx` and `usePipeline.ts` before touching any component.
 
 ### Key state
 ```typescript
 phase: PipelinePhase        // idle | running | reviewing | rendering | done | error
-segments: Segment[]         // AI-selected clips, mutable (status, trimStart/End, grade)
-log: LogLine[]              // streaming log output
-params: PipelineParams      // sidebar config (template, quality, toggles)
-activeTab: "Log"|"Review"|"Output"
-elapsed: number             // seconds since pipeline started
-outputPath: string | null   // final rendered video path
-```
+segments: Segment[]
+log: LogLine[]
+params: PipelineParams
+activeTab: "Log"|"Review"|"Output"|"Inpaint"
+elapsed: number
+outputPath: string | null
 
-### Updating segments
-```typescript
-// Always use updateSegment — never mutate directly
-const { updateSegment } = usePipeline();
-updateSegment(seg.id, { status: "accepted" });
-updateSegment(seg.id, { trimStart: 12.5, trimEnd: 18.0 });
-updateSegment(seg.id, { grade: { ...seg.grade, brightness: 10 } });
+// Per-segment overrides (keyed by segment index)
+trimData: Record<number, TrimSettings>
+gradeData: Record<number, GradeSettings>
+transitionData: Record<number, string>
+cropData: Record<number, CropSettings>
+samData: Record<number, SamMaskSettings>
+inpaintJobs: Record<number, InpaintJob>
 ```
 
 ---
 
 ## Flask API Contract
 
-The frontend talks to a Flask backend. All endpoints are relative (proxied via Vite in dev).
-
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/run` | POST | Start pipeline. Body: `{ template, quality, buffer, llm, vision, vision_max, disable_cache }` |
-| `/api/stream` | GET | SSE stream of log lines. Each event is JSON `{ text: string }` or `{ ping: true }` |
-| `/api/status` | GET | Returns `{ phase, running, selected_segments?, output_path? }` |
-| `/api/review` | POST | Trigger final render. Body: `{ segments: Segment[], params }` |
-| `/api/templates` | GET | Returns `string[]` of available template names |
-| `/api/clips` | GET | Returns list of clips in raw_clips/ |
-| `/video/<path>` | GET | Stream video file with **HTTP Range Request support** (required for seeking) |
-
-### Dev mode (no backend)
-`PipelineContext` has a built-in simulation. If `/api/run` fails, it falls back to `simulatePipeline()` which streams fake log lines and loads mock segments after ~5 seconds. Use this to develop UI without the Python backend running.
+| `/api/run` | POST | Start pipeline |
+| `/api/stream` | GET | SSE log stream |
+| `/api/status` | GET | Phase + segment counts |
+| `/api/review` | POST | Trigger render |
+| `/api/templates` | GET | Template names |
+| `/api/clips` | GET | Raw clips list |
+| `/video/<path>` | GET | Stream video — **HTTP 206 required** |
+| `/api/crop_auto` | POST | Auto-detect 9:16 crop region |
+| `/api/sam_mask` | POST | SAM point-prompt mask (~5–30s) |
+| `/api/inpaint/start` | POST | Start ProPainter job (non-blocking) |
+| `/api/inpaint/status/<id>` | GET | Poll job progress |
+| `/api/inpaint/cancel/<id>` | POST | Kill job + cleanup |
 
 ---
 
@@ -133,17 +142,20 @@ The frontend talks to a Flask backend. All endpoints are relative (proxied via V
 ```typescript
 interface Segment {
   id: string;
-  video_path: string;       // full path or filename
-  start: number;            // original clip start (seconds)
-  end: number;              // original clip end (seconds)
-  style_score: number;      // 0–1 AI similarity score
-  buffer: boolean;          // true = buffer segment (lower priority)
-  tags: string[];           // AI vision tags e.g. ["motion", "performer"]
-  // mutable:
+  video_path: string;
+  start: number;
+  end: number;
+  style_score: number;
+  buffer: boolean;
+  tags: string[];
+  narrative_position?: "opener" | "middle" | "closer";
+  transition_in?: string;
   status: "pending" | "accepted" | "rejected";
-  trimStart: number;        // user-adjusted trim point
+  trimStart: number;
   trimEnd: number;
-  grade: GradeSettings;     // per-segment colour grade
+  grade: GradeSettings;
+  crop?: CropSettings;
+  sam_mask?: SamMaskSettings;
 }
 
 interface GradeSettings {
@@ -151,106 +163,132 @@ interface GradeSettings {
   contrast: number;
   saturation: number;
   vibrance: number;
-  temp: number;         // colour temperature (warm/cool)
-  lut: string;          // "none" | "cinema" | "golden" | "cool" | "fade" | "punch" | "mono" | "teal_org"
+  temp: number;
+  lut: string;
+}
+
+interface CropSettings {
+  x: number;
+  y: number;            // always 0
+  w: number;            // source_height * 9/16, even number
+  h: number;
+  auto: boolean;
+}
+
+interface SamMaskSettings {
+  point_x: number;      // 0.0–1.0
+  point_y: number;      // 0.0–1.0
+  mask_b64: string;
+  ready: boolean;
+  enabled: boolean;     // user toggle
+  timestamp: number;
 }
 ```
 
 ---
 
-## Key UX Behaviours
+## Transition Types (14 total)
 
-### Review tab keyboard shortcuts
-| Key | Action |
-|-----|--------|
-| `A` | Accept focused segment |
-| `R` | Reject focused segment (auto-advances) |
-| `Enter` | Expand / collapse card |
-| `Space` | Play / pause video in expanded card |
-| `↑ ↓` | Navigate between segments |
-| `Escape` | Collapse expanded card |
+Defined in `scripts/transitions.py`. Auto-assigned by `editing_brain.py`.
 
-### Segment card inline expand
-- Click card header → expands **below** the card (Notion-style, not modal)
-- Only one card open at a time
-- Left side: video player + transport controls + trim rail
-- Right side: colour grade sliders + LUT preset grid
-- Trim handles snap to **0.5s** intervals
-- Grade sliders apply **CSS filters** to the video element as live preview
-- Real grade values are sent to Flask at render time for ffmpeg processing
+**Phase 1 (insert clips):** `cut`, `jump_cut`, `flash_white`, `flash_black`, `dip_black`, `dip_white`
+
+**Phase 2 (xfade):** `dissolve`, `fade_black`, `wipe_up`, `wipe_left`, `zoom_in`, `zoom_out`, `push_up`, `slide_left`
+
+---
+
+## ProPainter Integration
+
+Installed at: `D:\video-agent\ProPainter\`
+
+Critical runtime notes:
+- `--cpu` flag does NOT exist — omit it
+- `--mask` takes a **single PNG** not a directory
+- Run at `--width 640` (CPU time ~20–30 min per 3s segment)
+- `output_path` in job status must be a `.mp4` file path, not a directory
+- When substituting inpainted clips: reset `start=0, end=<inpainted_duration>`
+
+---
+
+## Key UX Rules
+
+- Proxy is the **default quality** — never change this default
+- Segment previews are **inline expand only** — never modal
+- Crop tool hidden if source is already 9:16 or narrower
+- Inpaint tab disabled until `phase === "done"`, always has "Skip Inpaint →" visible
+- `/api/sam_mask` needs 30s proxy timeout in `vite.config.ts`
 
 ### Segment card visual states
 ```
-border-l-primary/70    accepted (green left border)
-border-l-destructive   rejected (red left border, opacity-40)
-border-l-blue-500/50   buffer segment
+border-l-primary/70    accepted
+border-l-destructive   rejected (opacity-40)
+border-l-blue-500/50   buffer
 ring-1 ring-primary/30 keyboard focused
-```
-
-### Quality defaults
-**Proxy is the default quality** — optimised for fast iteration. User explicitly upgrades to High/4K when ready for final render.
-
----
-
-## Vite Dev Proxy
-
-To avoid CORS issues during development, add this to `vite.config.ts`:
-
-```typescript
-export default defineConfig({
-  // ...existing config
-  server: {
-    proxy: {
-      '/api': 'http://localhost:5000',
-      '/video': 'http://localhost:5000',
-    }
-  }
-});
-```
-
----
-
-## Common Tasks
-
-### Add a new pipeline option to the sidebar
-1. Add field to `PipelineParams` interface in `PipelineContext.tsx`
-2. Add default value in the `useState` initialiser
-3. Add UI control in `PipelineSidebar.tsx` using `update({ newField: value })`
-4. Include in the fetch body inside `runPipeline()`
-
-### Add a new LUT preset
-1. Add entry to `LUTS` array in `SegmentCard.tsx`
-2. Add CSS filter string to `LUT_CSS` map
-3. Add ffmpeg filter equivalent in Flask's render route
-
-### Add a new tab
-1. Add to `TABS` array in `MainContent.tsx`
-2. Add panel component
-3. Add `activeTab === "NewTab" && <NewPanel />` in the content section
-
-### Change accent colour
-Edit the `--primary` and `--ring` HSL values in `src/index.css`. The gradient utilities reference these variables so everything updates consistently.
-
----
-
-## Flask Range Request (Critical)
-
-The `/video/<path>` route **must** implement HTTP 206 Partial Content responses. Without this, the browser video element cannot seek and trim handles break silently.
-
-```python
-@app.route("/video/<path:filepath>")
-def serve_video(filepath):
-    # Parse Range header → return 206 with Content-Range
-    # See app.py for full implementation
 ```
 
 ---
 
 ## What NOT to Do
 
-- **Don't** bypass `PipelineContext` — no component-level fetch calls for pipeline data
-- **Don't** use `inline styles` for colours — use Tailwind classes with the design tokens
-- **Don't** add new UI libraries — Radix + shadcn + lucide covers everything needed
-- **Don't** put grade/trim logic in Flask — preview is CSS filters client-side, render uses the values server-side
-- **Don't** default quality to anything other than Proxy — fast iteration is the priority
-- **Don't** open segment previews in a modal — inline expand only (Notion-style)
+- Don't bypass `PipelineContext` / `usePipeline.ts`
+- Don't hardcode colours — use design tokens
+- Don't add new UI libraries
+- Don't put grade/trim/crop preview logic in Flask
+- Don't run multiple phases simultaneously
+- Don't touch "do not change" files from FEATURES.md without explicit instruction
+
+---
+
+## Common Tasks
+
+### Add a pipeline sidebar option
+1. Add field to `PipelineParams` in `PipelineContext.tsx`
+2. Add default in `useState`
+3. Add control in `PipelineSidebar.tsx`
+4. Include in `runPipeline()` fetch body
+
+### Add a LUT preset
+1. `SegmentCard.tsx` — add to `LUTS` array + `LUT_CSS` map
+2. `analyze_and_edit.py` — add to `LUT_FFMPEG_FILTERS`
+
+### Add a transition type
+1. `transitions.py` — add to `ALL_TRANSITIONS`, correct phase frozenset, `XFADE_MAP` if Phase 2
+2. `SegmentCard.tsx` — add to `TRANSITION_OPTIONS`
+
+### Add a tab
+1. `MainContent.tsx` — add to `TABS` array
+2. Create panel component
+3. Add `activeTab === "X" && <XPanel />` in content section
+4. Update `activeTab` type union in `PipelineContext.tsx`
+
+---
+
+## Session Memory Protocol
+
+This project uses `SESSIONS.md` as persistent memory across VS Code sessions.
+
+### START of every session — paste this prompt:
+```
+Read CLAUDE.md, then read the last entry in SESSIONS.md.
+Summarise the current state of the project in 3 sentences,
+list any known broken items, and tell me what we should
+work on first today.
+```
+
+### END of every session — paste this prompt:
+```
+Update SESSIONS.md with a new entry for this session.
+Follow the format in the file exactly. Be specific about
+file names and line numbers. Make "Next session starts with"
+a single concrete command or action, not a vague goal.
+```
+
+### If something breaks unexpectedly:
+```
+Before fixing this, add a "Broken" note to the current
+SESSIONS.md entry with the error, the file, and the line
+number if known.
+```
+
+Never skip the end-of-session update — even a "nothing worked" entry
+is more valuable than a gap in the log.

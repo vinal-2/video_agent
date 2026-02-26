@@ -279,11 +279,15 @@ export function usePipeline() {
         const samRaw   = samData[idx] ?? null;
         const sam_mask = (samRaw && samRaw.enabled) ? samRaw : null;
         const inpaintedPath = completedBySegment[idx];
+        // When substituting an inpainted clip the new video starts at 0, so
+        // any existing trim handles (which were absolute timestamps in the
+        // original source) must be re-baselined by subtracting seg.start.
+        const trimBase = inpaintedPath ? seg.start : 0;
         return {
           ...seg,
           ...(inpaintedPath ? { video_path: inpaintedPath, start: 0, end: seg.end - seg.start } : {}),
-          trimStart: trim?.start ?? seg.start,
-          trimEnd:   trim?.end ?? seg.end,
+          trimStart: (trim?.start ?? seg.start) - trimBase,
+          trimEnd:   (trim?.end   ?? seg.end)   - trimBase,
           grade,
           transition_in: transitionData[idx] ?? "cut",
           crop,
