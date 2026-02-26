@@ -67,6 +67,10 @@ _sse_subscribers: list[queue.Queue] = []
 _sse_lock: threading.Lock = threading.Lock()
 _cancel_requested: bool = False  # set by api_cancel, read by _run_pipeline/_run_render
 
+# Inpaint job registry: job_id → { "thread": Thread, "segment_index": int }
+_inpaint_jobs: dict[str, dict] = {}
+_inpaint_lock: threading.Lock = threading.Lock()
+
 
 def _emit(line: str):
     with _state_lock:
@@ -427,6 +431,97 @@ def api_output_latest():
             "size_mb": round(p.stat().st_size / 1e6, 1),
         })
     return jsonify({"path": None})
+
+
+# ── Inpaint endpoints ─────────────────────────────────────────────────────────
+
+@app.route("/api/inpaint/start", methods=["POST"])
+def api_inpaint_start():
+    """
+    Start a ProPainter inpaint job in a background thread.
+    Body: { segment_index: int, video_path: str, start: float, end: float, mask_b64: str }
+    Returns: { job_id: str }
+    """
+    import uuid as _uuid
+    body           = request.get_json(force=True) or {}
+    segment_index  = int(body.get("segment_index", 0))
+    video_path     = body.get("video_path", "")
+    start          = float(body.get("start", 0))
+    end            = float(body.get("end", 0))
+    mask_b64       = body.get("mask_b64", "")
+
+    if not video_path:
+        return jsonify({"error": "video_path required"}), 400
+    if not mask_b64:
+        return jsonify({"error": "mask_b64 required"}), 400
+
+    p = Path(video_path)
+    if not p.is_absolute():
+        p = RAW_CLIPS / p.name
+    if not p.exists():
+        return jsonify({"error": f"Video not found: {p}"}), 404
+
+    if not (Path(__file__).resolve().parent / "ProPainter" / "inference_propainter.py").exists():
+        return jsonify({"error": f"ProPainter not found at {BASE_DIR / 'ProPainter'}"}), 501
+
+    job_id = str(_uuid.uuid4())
+
+    def _run():
+        try:
+            from scripts.inpaint_worker import run_inpaint_job
+            run_inpaint_job(job_id, str(p), mask_b64, start, end)
+        except Exception as exc:
+            print(f"[inpaint] job {job_id[:8]} failed in thread: {exc}", flush=True)
+
+    t = threading.Thread(target=_run, daemon=True)
+    with _inpaint_lock:
+        _inpaint_jobs[job_id] = {"thread": t, "segment_index": segment_index}
+    t.start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/inpaint/status/<job_id>")
+def api_inpaint_status(job_id: str):
+    """
+    Read the status JSON for an inpaint job from disk.
+    Returns pending status if job exists in registry but status file not yet written.
+    """
+    from scripts.inpaint_worker import read_status
+    status = read_status(job_id)
+    with _inpaint_lock:
+        known = job_id in _inpaint_jobs
+    if status is None:
+        if known:
+            return jsonify({
+                "status": "pending",
+                "progress": 0.0,
+                "frames_done": 0,
+                "frames_total": 0,
+                "estimated_seconds": None,
+                "output_path": None,
+                "error": None,
+            })
+        return jsonify({"error": "job not found"}), 404
+    return jsonify(status)
+
+
+@app.route("/api/inpaint/cancel/<job_id>", methods=["POST"])
+def api_inpaint_cancel(job_id: str):
+    """
+    Cancel an inpaint job. The thread cannot be killed directly, but setting a
+    flag in the status file causes the worker to abort on next status write.
+    We also mark the status file as failed immediately so the UI can react.
+    """
+    from scripts.inpaint_worker import _write_status, read_status
+    with _inpaint_lock:
+        if job_id not in _inpaint_jobs:
+            return jsonify({"error": "job not found"}), 404
+        del _inpaint_jobs[job_id]
+
+    current = read_status(job_id) or {}
+    if current.get("status") not in ("done", "failed"):
+        _write_status(job_id, {**current, "status": "failed", "error": "cancelled by user"})
+    return jsonify({"ok": True})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

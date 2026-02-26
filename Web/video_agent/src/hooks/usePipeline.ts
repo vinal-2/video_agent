@@ -7,6 +7,8 @@ import {
   TrimState,
   CropSettings,
   SamMaskSettings,
+  InpaintJob,
+  InpaintJobStatus,
   DEFAULT_GRADE,
   defaultConfig,
   OutputInfo,
@@ -18,6 +20,9 @@ import {
   cancelPipelineRequest,
   fetchLatestOutput,
   fetchClips,
+  startInpaintJob,
+  getInpaintStatus,
+  cancelInpaintJob,
 } from "@/lib/api";
 
 export type SegmentDecision = "accepted" | "rejected";
@@ -49,6 +54,7 @@ export function usePipeline() {
   const [transitionData, setTransitionData] = useState<Record<number, string>>({});
   const [cropData, setCropData] = useState<Record<number, CropSettings>>({});
   const [samData, setSamData] = useState<Record<number, SamMaskSettings>>({});
+  const [inpaintJobs, setInpaintJobs] = useState<Record<string, InpaintJob>>({});
   const [outputInfo, setOutputInfo] = useState<OutputInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -167,6 +173,28 @@ export function usePipeline() {
     };
   }, []);
 
+  // Poll active inpaint jobs every 5 seconds
+  useEffect(() => {
+    const activeJobs = Object.values(inpaintJobs).filter(
+      (j) => j.status.status !== "done" && j.status.status !== "failed",
+    );
+    if (!activeJobs.length) return;
+    const id = setInterval(async () => {
+      for (const job of activeJobs) {
+        try {
+          const s = await getInpaintStatus(job.jobId);
+          setInpaintJobs((prev) => ({
+            ...prev,
+            [job.jobId]: { ...prev[job.jobId], status: s },
+          }));
+        } catch {
+          // ignore transient errors
+        }
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [inpaintJobs]);
+
   useEffect(() => {
     if (!status) return;
     if (status.phase === "done") {
@@ -233,6 +261,45 @@ export function usePipeline() {
     });
   }, [segments, segmentStates, trimData, gradeData, transitionData, cropData, samData, config]);
 
+  const renderWithInpainting = useCallback(async () => {
+    // Same as renderAccepted but substitutes video_path for segments that have a
+    // completed inpaint job — the inpainted clip replaces the original footage.
+    const completedBySegment: Record<number, string> = {};
+    Object.values(inpaintJobs).forEach((job) => {
+      if (job.status.status === "done" && job.status.output_path) {
+        completedBySegment[job.segmentIndex] = job.status.output_path;
+      }
+    });
+
+    const enriched = segments
+      .map((seg, idx) => {
+        const trim     = trimData[idx];
+        const grade    = gradeData[idx] ?? DEFAULT_GRADE;
+        const crop     = cropData[idx] ?? null;
+        const samRaw   = samData[idx] ?? null;
+        const sam_mask = (samRaw && samRaw.enabled) ? samRaw : null;
+        const inpaintedPath = completedBySegment[idx];
+        return {
+          ...seg,
+          ...(inpaintedPath ? { video_path: inpaintedPath, start: 0, end: seg.end - seg.start } : {}),
+          trimStart: trim?.start ?? seg.start,
+          trimEnd:   trim?.end ?? seg.end,
+          grade,
+          transition_in: transitionData[idx] ?? "cut",
+          crop,
+          sam_mask,
+        };
+      })
+      .filter((_, idx) => segmentStates[idx] !== "rejected");
+    if (!enriched.length) throw new Error("No segments accepted");
+    setError(null);
+    await renderSegmentsRequest(enriched, config).catch((err) => {
+      const message = err instanceof Error ? err.message : "Failed to start render";
+      setError(message);
+      throw err;
+    });
+  }, [segments, segmentStates, trimData, gradeData, transitionData, cropData, samData, inpaintJobs, config]);
+
   const cancelPipeline = useCallback(async () => {
     setError(null);
     try {
@@ -278,6 +345,41 @@ export function usePipeline() {
     });
   }, []);
 
+  const beginInpaint = useCallback(async (
+    segmentIndex: number,
+    videoPath: string,
+    start: number,
+    end: number,
+    maskB64: string,
+  ) => {
+    const { job_id } = await startInpaintJob(segmentIndex, videoPath, start, end, maskB64);
+    const initialStatus: InpaintJobStatus = {
+      status: "pending",
+      progress: 0,
+      frames_done: 0,
+      frames_total: 0,
+      estimated_seconds: null,
+      output_path: null,
+      error: null,
+    };
+    setInpaintJobs((prev) => ({
+      ...prev,
+      [job_id]: { jobId: job_id, segmentIndex, videoPath, status: initialStatus },
+    }));
+    return job_id;
+  }, []);
+
+  const removeInpaintJob = useCallback(async (jobId: string) => {
+    try {
+      await cancelInpaintJob(jobId);
+    } catch { /* ignore if already done */ }
+    setInpaintJobs((prev) => {
+      const next = { ...prev };
+      delete next[jobId];
+      return next;
+    });
+  }, []);
+
   const updateTransition = useCallback((index: number, transition: string) => {
     setTransitionData((prev) => ({ ...prev, [index]: transition }));
   }, []);
@@ -313,6 +415,7 @@ export function usePipeline() {
     setTransitionData({});
     setCropData({});
     setSamData({});
+    setInpaintJobs({});
     setOutputInfo(null);
     setError(null);
     // Reset the segment signature so new segments will be initialised normally
@@ -340,6 +443,7 @@ export function usePipeline() {
     transitionData,
     cropData,
     samData,
+    inpaintJobs,
     acceptedSegments,
     outputInfo,
     error,
@@ -360,6 +464,9 @@ export function usePipeline() {
     updateTransition,
     updateCrop,
     updateSamMask,
+    beginInpaint,
+    removeInpaintJob,
+    renderWithInpainting,
     acceptAll,
     rejectAll,
     clearLogs,

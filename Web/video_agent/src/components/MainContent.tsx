@@ -8,15 +8,18 @@ import {
   AlertTriangle,
   PlayCircle,
   RotateCcw,
+  Wand2,
 } from "lucide-react";
-import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings, SamMaskSettings } from "@/lib/api";
+import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings, SamMaskSettings, InpaintJob } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 import SegmentCard from "@/components/SegmentCard";
+import InpaintTab from "@/components/InpaintTab";
 
 const tabs = [
-  { id: "Log"    as const, icon: Terminal    },
-  { id: "Review" as const, icon: CheckCircle2 },
-  { id: "Output" as const, icon: FileVideo    },
+  { id: "Log"     as const, icon: Terminal    },
+  { id: "Review"  as const, icon: CheckCircle2 },
+  { id: "Output"  as const, icon: FileVideo    },
+  { id: "Inpaint" as const, icon: Wand2        },
 ];
 type Tab = (typeof tabs)[number]["id"];
 
@@ -39,12 +42,16 @@ interface MainContentProps {
   transitionData: Record<number, string>;
   cropData: Record<number, CropSettings>;
   samData: Record<number, SamMaskSettings>;
+  inpaintJobs: Record<string, InpaintJob>;
   setSegmentState: (index: number, decision: SegmentDecision) => void;
   updateTrim: (index: number, start: number, end: number) => void;
   updateGrade: (index: number, grade: GradeSettings) => void;
   updateTransition: (index: number, transition: string) => void;
   updateCrop: (index: number, crop: CropSettings | null) => void;
   updateSamMask: (index: number, sam: SamMaskSettings | null) => void;
+  beginInpaint: (segIdx: number, videoPath: string, start: number, end: number, maskB64: string) => Promise<string>;
+  removeInpaintJob: (jobId: string) => Promise<void>;
+  renderWithInpainting: () => Promise<void>;
   acceptAll: () => void;
   rejectAll: () => void;
   onRender: () => Promise<void>;
@@ -67,12 +74,16 @@ const MainContent = ({
   transitionData,
   cropData,
   samData,
+  inpaintJobs,
   setSegmentState,
   updateTrim,
   updateGrade,
   updateTransition,
   updateCrop,
   updateSamMask,
+  beginInpaint,
+  removeInpaintJob,
+  renderWithInpainting,
   acceptAll,
   rejectAll,
   onRender,
@@ -128,21 +139,25 @@ const MainContent = ({
 
       <div className="relative z-10 border-b border-border/50 glass-surface">
         <div className="flex">
-          {tabs.map(({ id, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-2 px-6 py-3.5 text-sm font-medium transition-all relative group ${
-                activeTab === id ? "text-foreground" : "text-muted-foreground hover:text-secondary-foreground"
-              }`}
-            >
-              <Icon className={`w-4 h-4 transition-colors ${activeTab === id ? "text-primary" : ""}`} />
-              {id}
-              {activeTab === id && (
-                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent rounded-t" />
-              )}
-            </button>
-          ))}
+          {tabs.map(({ id, icon: Icon }) => {
+            const disabled = id === "Inpaint" && phase !== "done";
+            return (
+              <button
+                key={id}
+                onClick={() => !disabled && setActiveTab(id)}
+                disabled={disabled}
+                className={`flex items-center gap-2 px-6 py-3.5 text-sm font-medium transition-all relative group disabled:opacity-40 disabled:cursor-not-allowed ${
+                  activeTab === id ? "text-foreground" : "text-muted-foreground hover:text-secondary-foreground"
+                }`}
+              >
+                <Icon className={`w-4 h-4 transition-colors ${activeTab === id ? "text-primary" : ""}`} />
+                {id}
+                {activeTab === id && (
+                  <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent rounded-t" />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -223,6 +238,21 @@ const MainContent = ({
           />
         )}
         {activeTab === "Output" && <OutputPanel outputInfo={outputInfo} />}
+        {activeTab === "Inpaint" && (
+          <InpaintTab
+            segments={segments}
+            segmentStates={segmentStates}
+            trimData={trimData}
+            inpaintJobs={inpaintJobs}
+            outputInfo={outputInfo}
+            phase={phase}
+            onBeginInpaint={beginInpaint}
+            onCancelJob={removeInpaintJob}
+            onSkip={() => setActiveTab("Output")}
+            onRenderWithInpainting={renderWithInpainting}
+            running={running}
+          />
+        )}
       </div>
     </main>
   );

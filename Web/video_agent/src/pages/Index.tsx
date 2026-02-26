@@ -44,6 +44,10 @@ const Index = () => {
           updateTransition={pipeline.updateTransition}
           updateCrop={pipeline.updateCrop}
           updateSamMask={pipeline.updateSamMask}
+          inpaintJobs={pipeline.inpaintJobs}
+          beginInpaint={pipeline.beginInpaint}
+          removeInpaintJob={pipeline.removeInpaintJob}
+          renderWithInpainting={pipeline.renderWithInpainting}
           acceptAll={pipeline.acceptAll}
           rejectAll={pipeline.rejectAll}
           onRender={pipeline.renderAccepted}

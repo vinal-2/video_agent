@@ -208,6 +208,51 @@ export async function fetchSamMask(
   return { ...data, point_x, point_y, enabled: true };
 }
 
+export interface InpaintJobStatus {
+  status: "pending" | "running" | "done" | "failed";
+  progress: number;              // 0.0–1.0
+  frames_done: number;
+  frames_total: number;
+  estimated_seconds: number | null;
+  output_path: string | null;
+  error: string | null;
+}
+
+export interface InpaintJob {
+  jobId: string;
+  segmentIndex: number;
+  videoPath: string;
+  status: InpaintJobStatus;
+}
+
+export async function startInpaintJob(
+  segment_index: number,
+  video_path: string,
+  start: number,
+  end: number,
+  mask_b64: string,
+): Promise<{ job_id: string }> {
+  const res = await ensureOk(
+    await fetch("/api/inpaint/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segment_index, video_path, start, end, mask_b64 }),
+    }),
+  );
+  return res.json();
+}
+
+export async function getInpaintStatus(job_id: string): Promise<InpaintJobStatus> {
+  const res = await ensureOk(await fetch(`/api/inpaint/status/${job_id}`));
+  return res.json();
+}
+
+export async function cancelInpaintJob(job_id: string): Promise<void> {
+  await ensureOk(
+    await fetch(`/api/inpaint/cancel/${job_id}`, { method: "POST" }),
+  );
+}
+
 export async function cancelPipelineRequest() {
   const res = await ensureOk(
     await fetch("/api/cancel", {
