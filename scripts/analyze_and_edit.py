@@ -481,7 +481,6 @@ def _render_segment_ffmpeg(
     # ── SAM split-grade mode ──────────────────────────────────────────────────
     use_sam = bool(
         sam_mask
-        and sam_mask.get("ready")
         and sam_mask.get("enabled", True)
         and sam_mask.get("mask_b64")
     )

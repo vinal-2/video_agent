@@ -225,20 +225,36 @@ export interface InpaintJob {
   status: InpaintJobStatus;
 }
 
+export interface StartInpaintRequest {
+  segment_index: number;
+  video_path:    string;
+  start:         number;
+  end:           number;
+  mask_b64:      string;
+  mode:          "local" | "remote";
+}
+
 export async function startInpaintJob(
-  segment_index: number,
-  video_path: string,
-  start: number,
-  end: number,
-  mask_b64: string,
+  req: StartInpaintRequest,
 ): Promise<{ job_id: string }> {
   const res = await ensureOk(
     await fetch("/api/inpaint/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ segment_index, video_path, start, end, mask_b64 }),
+      body: JSON.stringify(req),
     }),
   );
+  return res.json();
+}
+
+export async function getColabStatus(): Promise<{
+  online: boolean;
+  gpu?: string;
+  last_seen_seconds: number;
+  reason?: string;
+}> {
+  const res = await fetch("/api/inpaint/colab_status");
+  if (!res.ok) return { online: false, last_seen_seconds: 999 };
   return res.json();
 }
 

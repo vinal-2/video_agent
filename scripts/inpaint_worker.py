@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -52,6 +53,10 @@ PROPAINTER_WEIGHTS = PROPAINTER_DIR / "weights"
 INPAINT_JOBS_DIR  = BASE_DIR / "output" / "inpaint_jobs"
 INPAINT_TEMP_DIR  = BASE_DIR / "output" / "inpaint_temp"
 INPAINT_OUT_DIR   = BASE_DIR / "output" / "inpainted"
+
+# Drive sync root — Drive for Desktop mirrors this folder to Google Drive.
+# Override via DRIVE_SYNC_DIR env var if your sync root differs.
+DRIVE_SYNC_DIR = Path(os.environ.get("DRIVE_SYNC_DIR", str(INPAINT_OUT_DIR)))
 
 # Matches tqdm lines: "  8%|█    | 4/47 [00:00<00:05, 7.86it/s]"
 _TQDM_RE = re.compile(r'(\d+)%\|[^\|]*\|\s*(\d+)/(\d+)')
@@ -137,16 +142,34 @@ def run_inpaint_job(
         cv2.imwrite(str(mask_png), mask_img)
 
         # ── 3. Run ProPainter ──────────────────────────────────────────────────
+        # Compute target dimensions: cap shorter side at MAX_SHORT_SIDE pixels,
+        # preserving source AR. This keeps memory within CPU limits (~8 GB).
+        MAX_SHORT_SIDE = 400
+        cap = cv2.VideoCapture(str(segment_video))
+        src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        if src_w and src_h:
+            short = min(src_w, src_h)
+            if short > MAX_SHORT_SIDE:
+                scale  = MAX_SHORT_SIDE / short
+                tgt_w  = int(src_w * scale) & ~1   # round down to even
+                tgt_h  = int(src_h * scale) & ~1
+            else:
+                tgt_w, tgt_h = src_w, src_h
+        else:
+            tgt_w, tgt_h = 640, 640  # fallback
+
         # --fp16 is silently ignored on CPU (ProPainter checks device type).
         # No --cpu flag exists; device is auto-selected by ProPainter.
         propainter_cmd = [
             sys.executable,
             str(PROPAINTER_SCRIPT),
-            "--video",  str(segment_video),
-            "--mask",   str(mask_png),
-            "--output", str(output_dir),
-            "--width",  "640",
-            "--height", "1138",
+            "--video",   str(segment_video),
+            "--mask",    str(mask_png),
+            "--output",  str(output_dir),
+            "--width",   str(tgt_w),
+            "--height",  str(tgt_h),
             "--fp16",
         ]
 
@@ -220,6 +243,109 @@ def run_inpaint_job(
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+# ── Remote job submission ──────────────────────────────────────────────────────
+
+def run_remote_inpaint_job(
+    job_id: str,
+    video_path: str,
+    mask_b64: str,
+    start: float,
+    end: float,
+    segment_index: int = 0,
+) -> None:
+    """
+    Fire-and-forget remote job submission.
+    Extracts the clip, scales to ≤400px short side, resizes the mask to match,
+    then writes segment.mp4 + mask.png + job.json + status.json into
+    DRIVE_SYNC_DIR/jobs/pending/<job_id>/.
+    Returns immediately — Drive for Desktop syncs the folder to Google Drive.
+    Raises on error (bad input, Drive folder missing, ffmpeg failure).
+    """
+    if not DRIVE_SYNC_DIR.exists():
+        raise FileNotFoundError(
+            f"Drive sync folder not found: {DRIVE_SYNC_DIR}. "
+            "Set DRIVE_SYNC_DIR in env and ensure Drive for Desktop is syncing."
+        )
+
+    pending_dir = DRIVE_SYNC_DIR / "jobs" / "pending" / job_id
+    pending_dir.mkdir(parents=True, exist_ok=True)
+
+    segment_video = pending_dir / "segment.mp4"
+    mask_png      = pending_dir / "mask.png"
+    _tmp_seg      = pending_dir / "_tmp_segment.mp4"
+
+    # ── 1. Extract segment clip (stream copy — no re-encode, fast) ─────────────
+    duration = max(end - start, 0.1)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-ss", str(start), "-t", str(duration),
+         "-i", str(video_path), "-c", "copy", str(_tmp_seg)],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg extract failed: {result.stderr.decode('utf-8', errors='replace')[:500]}"
+        )
+
+    # ── 2. Probe dimensions and compute target size (≤400px short side) ────────
+    MAX_SHORT_SIDE = 400
+    cap   = cv2.VideoCapture(str(_tmp_seg))
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps   = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    cap.release()
+    if src_w and src_h:
+        short = min(src_w, src_h)
+        if short > MAX_SHORT_SIDE:
+            scale = MAX_SHORT_SIDE / short
+            tgt_w = int(src_w * scale) & ~1
+            tgt_h = int(src_h * scale) & ~1
+        else:
+            tgt_w, tgt_h = src_w, src_h
+    else:
+        tgt_w, tgt_h = 225, 400   # portrait fallback
+
+    # ── 3. Scale to target dimensions (small file for Drive upload) ─────────────
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(_tmp_seg),
+         "-vf", f"scale={tgt_w}:{tgt_h}",
+         "-c:v", "libx264", "-crf", "18", "-an",
+         str(segment_video)],
+        capture_output=True,
+    )
+    _tmp_seg.unlink(missing_ok=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg scale failed: {result.stderr.decode('utf-8', errors='replace')[:500]}"
+        )
+
+    # ── 4. Decode mask and resize to match target dimensions ───────────────────
+    mask_data = base64.b64decode(mask_b64)
+    mask_arr  = np.frombuffer(mask_data, dtype=np.uint8)
+    mask_img  = cv2.imdecode(mask_arr, cv2.IMREAD_GRAYSCALE)
+    if mask_img is None:
+        raise ValueError("Failed to decode mask PNG from base64")
+    if (mask_img.shape[1], mask_img.shape[0]) != (tgt_w, tgt_h):
+        mask_img = cv2.resize(mask_img, (tgt_w, tgt_h), interpolation=cv2.INTER_NEAREST)
+    cv2.imwrite(str(mask_png), mask_img)
+
+    # ── 5. Write job.json ──────────────────────────────────────────────────────
+    (pending_dir / "job.json").write_text(json.dumps({
+        "job_id":        job_id,
+        "mode":          "remote",
+        "segment_index": segment_index,
+        "fps":           fps,
+        "duration":      duration,
+        "width":         tgt_w,
+        "height":        tgt_h,
+        "created_at":    time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }))
+
+    # ── 6. Write initial status.json so the status endpoint can respond ─────────
+    (pending_dir / "status.json").write_text(json.dumps({"status": "pending"}))
+
+    print(f"[inpaint/remote] Job {job_id[:8]} queued → {pending_dir}", flush=True)
+
+
 # ── CLI entry point ────────────────────────────────────────────────────────────
 
 def _main() -> None:
@@ -231,6 +357,8 @@ def _main() -> None:
     parser.add_argument("--start",  type=float, default=0.0, help="Segment start (seconds)")
     parser.add_argument("--end",    type=float, required=True, help="Segment end (seconds)")
     parser.add_argument("--job_id", default=None, help="Job ID (auto-generated if omitted)")
+    parser.add_argument("--mode",   choices=["local", "remote"], default="local",
+                        help="Processing mode: local (ProPainter on this machine) or remote (Google Drive + Colab)")
     args = parser.parse_args()
 
     job_id = args.job_id or str(uuid.uuid4())
@@ -242,10 +370,14 @@ def _main() -> None:
     else:
         mask_b64 = args.mask  # assume it's already base64
 
-    print(f"[inpaint] Starting job {job_id}")
+    print(f"[inpaint] Starting job {job_id} (mode={args.mode})")
     try:
-        out = run_inpaint_job(job_id, args.video, mask_b64, args.start, args.end)
-        print(f"[inpaint] Done — output: {out}")
+        if args.mode == "remote":
+            run_remote_inpaint_job(job_id, args.video, mask_b64, args.start, args.end)
+            print(f"[inpaint] Remote job queued — Drive for Desktop will sync to Google Drive")
+        else:
+            out = run_inpaint_job(job_id, args.video, mask_b64, args.start, args.end)
+            print(f"[inpaint] Done — output: {out}")
     except Exception as exc:
         print(f"[inpaint] FAILED: {exc}", file=sys.stderr)
         sys.exit(1)

@@ -351,12 +351,19 @@ export function usePipeline() {
 
   const beginInpaint = useCallback(async (
     segmentIndex: number,
-    videoPath: string,
-    start: number,
-    end: number,
     maskB64: string,
+    mode: "local" | "remote" = "local",
   ) => {
-    const { job_id } = await startInpaintJob(segmentIndex, videoPath, start, end, maskB64);
+    const seg  = segments[segmentIndex];
+    const trim = trimData[segmentIndex];
+    const { job_id } = await startInpaintJob({
+      segment_index: segmentIndex,
+      video_path:    seg?.video_path ?? "",
+      start:         trim?.start ?? seg?.start ?? 0,
+      end:           trim?.end   ?? seg?.end   ?? 0,
+      mask_b64:      maskB64,
+      mode,
+    });
     const initialStatus: InpaintJobStatus = {
       status: "pending",
       progress: 0,
@@ -368,10 +375,10 @@ export function usePipeline() {
     };
     setInpaintJobs((prev) => ({
       ...prev,
-      [job_id]: { jobId: job_id, segmentIndex, videoPath, status: initialStatus },
+      [job_id]: { jobId: job_id, segmentIndex, videoPath: seg?.video_path ?? "", status: initialStatus },
     }));
     return job_id;
-  }, []);
+  }, [segments, trimData]);
 
   const removeInpaintJob = useCallback(async (jobId: string) => {
     try {

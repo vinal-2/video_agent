@@ -3,6 +3,7 @@ import { SkipForward, Paintbrush, Loader2, CheckCircle2, AlertCircle, RotateCcw,
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import type { Segment, OutputInfo, InpaintJob, TrimState } from "@/lib/api";
+import { getColabStatus } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 
 // ── DrawRegionModal ────────────────────────────────────────────────────────────
@@ -18,28 +19,40 @@ interface DrawRegionModalProps {
   onClose: () => void;
 }
 
-const CANVAS_W = 360;  // thumbnail display width in modal
-const CANVAS_H = 640;  // thumbnail display height (9:16)
+const CANVAS_W = 360;  // display width — height is computed from video AR
 
 const DrawRegionModal = ({ open, segment, trim, onConfirm, onClose }: DrawRegionModalProps) => {
   const canvasRef   = useRef<HTMLCanvasElement>(null);
   const paintingRef = useRef(false);
   const [hasStrokes, setHasStrokes] = useState(false);
+  // Actual video pixel dimensions — determined when video metadata loads.
+  // Canvas internal resolution is set to match so the mask AR is correct.
+  const [videoNative, setVideoNative] = useState<{ w: number; h: number } | null>(null);
+
+  const canvasH = videoNative
+    ? Math.round(CANVAS_W * videoNative.h / videoNative.w)
+    : 640; // fallback before metadata loads
 
   const fileName = segment.video_path?.split(/[/\\]/).pop() ?? "";
   const midTime  = (trim.start + trim.end) / 2;
   const videoUrl = `/video/${encodeURIComponent(fileName)}#t=${midTime.toFixed(2)}`;
 
-  // Clear canvas when modal opens
+  // Reset state when modal opens
   useEffect(() => {
     if (!open) return;
+    setVideoNative(null);
+    setHasStrokes(false);
+  }, [open]);
+
+  // Clear canvas whenever canvasH changes (video metadata arrived)
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     setHasStrokes(false);
-  }, [open]);
+  }, [canvasH]);
 
   const getPos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -121,10 +134,12 @@ const DrawRegionModal = ({ open, segment, trim, onConfirm, onClose }: DrawRegion
           Paint over the area you want to remove. ProPainter will fill it in.
         </p>
 
-        {/* Stacked: video thumbnail below, canvas on top */}
+        {/* Stacked: video thumbnail below, canvas on top.
+            Container height is set from the real video AR so the mask
+            pixel coordinates align with what ProPainter will process. */}
         <div
           className="relative rounded overflow-hidden bg-black select-none"
-          style={{ width: CANVAS_W, height: CANVAS_H, maxWidth: "100%" }}
+          style={{ width: CANVAS_W, height: canvasH, maxWidth: "100%" }}
         >
           <video
             src={videoUrl}
@@ -132,11 +147,17 @@ const DrawRegionModal = ({ open, segment, trim, onConfirm, onClose }: DrawRegion
             preload="metadata"
             muted
             playsInline
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget;
+              if (v.videoWidth && v.videoHeight) {
+                setVideoNative({ w: v.videoWidth, h: v.videoHeight });
+              }
+            }}
           />
           <canvas
             ref={canvasRef}
             width={CANVAS_W}
-            height={CANVAS_H}
+            height={canvasH}
             className="absolute inset-0 w-full h-full cursor-crosshair"
             style={{ opacity: 0.6 }}
             onMouseDown={startPaint}
@@ -187,10 +208,8 @@ interface InpaintTabProps {
   phase: string;
   onBeginInpaint: (
     segmentIndex: number,
-    videoPath: string,
-    start: number,
-    end: number,
     maskB64: string,
+    mode: "local" | "remote",
   ) => Promise<string>;
   onCancelJob: (jobId: string) => Promise<void>;
   onSkip: () => void;
@@ -214,6 +233,26 @@ const InpaintTab = ({
   const [drawingIndex, setDrawingIndex]     = useState<number | null>(null);
   const [submitting, setSubmitting]         = useState<Record<number, boolean>>({});
   const [renderBusy, setRenderBusy]         = useState(false);
+  const [mode, setMode]                     = useState<"local" | "remote">("local");
+  const [colabOnline, setColabOnline]       = useState(false);
+  const [colabGpu, setColabGpu]             = useState<string>("");
+
+  // Poll Colab status every 30s while this tab is mounted
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const s = await getColabStatus();
+        if (!cancelled) {
+          setColabOnline(s.online);
+          setColabGpu(s.gpu ?? "");
+        }
+      } catch { /* ignore */ }
+    };
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   // Build a lookup: segmentIndex → most recent InpaintJob
   const jobBySegment = Object.values(inpaintJobs).reduce<Record<number, InpaintJob>>(
@@ -235,25 +274,22 @@ const InpaintTab = ({
   const canRenderWithInpaint = doneJobs.length > 0 && !running && !renderBusy;
 
   const handleConfirmMask = useCallback(async (segIdx: number, maskB64: string) => {
-    const seg  = segments[segIdx];
-    if (!seg) return;
-    const trim = trimData[segIdx] ?? { start: seg.start, end: seg.end };
-    const vp   = seg.video_path?.split(/[/\\]/).pop() ?? "";
-
+    if (!segments[segIdx]) return;
     setDrawingIndex(null);
     setSubmitting((prev) => ({ ...prev, [segIdx]: true }));
     try {
-      await onBeginInpaint(segIdx, vp, trim.start, trim.end, maskB64);
+      await onBeginInpaint(segIdx, maskB64, mode);
     } catch (err) {
       console.error("inpaint start failed", err);
     } finally {
       setSubmitting((prev) => ({ ...prev, [segIdx]: false }));
     }
-  }, [segments, trimData, onBeginInpaint]);
+  }, [segments, onBeginInpaint, mode]);
 
   const handleRender = () => {
     setRenderBusy(true);
     onRenderWithInpainting()
+      .then(() => onSkip())   // navigate to Output tab once render is queued
       .catch((err) => console.error(err))
       .finally(() => setRenderBusy(false));
   };
@@ -287,6 +323,35 @@ const InpaintTab = ({
         >
           Skip Inpaint
           <SkipForward className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Mode selector */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">Process on:</span>
+        <button
+          onClick={() => setMode("local")}
+          className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
+            mode === "local"
+              ? "gradient-primary-btn text-primary-foreground border-transparent"
+              : "border-border/50 text-muted-foreground hover:border-border/80"
+          }`}
+        >
+          Local
+        </button>
+        <button
+          onClick={() => colabOnline && setMode("remote")}
+          disabled={!colabOnline}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors border disabled:opacity-50 disabled:cursor-not-allowed ${
+            mode === "remote"
+              ? "gradient-primary-btn text-primary-foreground border-transparent"
+              : "border-border/50 text-muted-foreground hover:border-border/80"
+          }`}
+        >
+          Remote (Colab)
+          {colabOnline
+            ? <span className="text-green-400">● {colabGpu || "online"}</span>
+            : <span className="text-muted-foreground">○ offline</span>}
         </button>
       </div>
 
@@ -345,6 +410,13 @@ const InpaintTab = ({
                       {job.status.estimated_seconds !== null && ` · ${formatSeconds(job.status.estimated_seconds)} left`}
                     </p>
                   </div>
+                )}
+
+                {/* Remote pending hint */}
+                {job && job.status.status === "pending" && mode === "remote" && (
+                  <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+                    Waiting for Colab to pick up job…
+                  </p>
                 )}
 
                 {/* Error */}

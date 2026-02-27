@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
@@ -28,7 +29,8 @@ LOGS_DIR     = BASE_DIR / "logs"
 STYLE_DIR    = BASE_DIR / "style_profiles"
 COMMANDS_TXT = BASE_DIR / "Commands.txt"
 REACT_DIST   = BASE_DIR / "Web" / "video_agent" / "dist"
-APP_PORT     = int(os.environ.get("VIDEO_AGENT_PORT", "5100"))
+APP_PORT       = int(os.environ.get("VIDEO_AGENT_PORT", "5100"))
+DRIVE_SYNC_DIR = Path(os.environ.get("DRIVE_SYNC_DIR", str(BASE_DIR / "output" / "inpainted")))
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
@@ -439,7 +441,8 @@ def api_output_latest():
 def api_inpaint_start():
     """
     Start a ProPainter inpaint job in a background thread.
-    Body: { segment_index: int, video_path: str, start: float, end: float, mask_b64: str }
+    Body: { segment_index, video_path, start, end, mask_b64, mode? }
+    mode: "local" (default) | "remote"
     Returns: { job_id: str }
     """
     import uuid as _uuid
@@ -449,6 +452,7 @@ def api_inpaint_start():
     start          = float(body.get("start", 0))
     end            = float(body.get("end", 0))
     mask_b64       = body.get("mask_b64", "")
+    mode           = body.get("mode", "local")
 
     if not video_path:
         return jsonify({"error": "video_path required"}), 400
@@ -461,46 +465,113 @@ def api_inpaint_start():
     if not p.exists():
         return jsonify({"error": f"Video not found: {p}"}), 404
 
-    if not (Path(__file__).resolve().parent / "ProPainter" / "inference_propainter.py").exists():
-        return jsonify({"error": f"ProPainter not found at {BASE_DIR / 'ProPainter'}"}), 501
+    if mode == "local":
+        if not (Path(__file__).resolve().parent / "ProPainter" / "inference_propainter.py").exists():
+            return jsonify({"error": f"ProPainter not found at {BASE_DIR / 'ProPainter'}"}), 501
+    elif mode == "remote":
+        if not DRIVE_SYNC_DIR.exists():
+            return jsonify({
+                "error": "Drive sync folder not found. Set DRIVE_SYNC_DIR in .env and ensure Drive for Desktop is running."
+            }), 503
 
     job_id = str(_uuid.uuid4())
 
     def _run():
         try:
-            from scripts.inpaint_worker import run_inpaint_job
-            run_inpaint_job(job_id, str(p), mask_b64, start, end)
+            if mode == "remote":
+                from scripts.inpaint_worker import run_remote_inpaint_job
+                run_remote_inpaint_job(job_id, str(p), mask_b64, start, end, segment_index)
+            else:
+                from scripts.inpaint_worker import run_inpaint_job
+                run_inpaint_job(job_id, str(p), mask_b64, start, end)
         except Exception as exc:
             print(f"[inpaint] job {job_id[:8]} failed in thread: {exc}", flush=True)
 
     t = threading.Thread(target=_run, daemon=True)
     with _inpaint_lock:
-        _inpaint_jobs[job_id] = {"thread": t, "segment_index": segment_index}
+        _inpaint_jobs[job_id] = {"thread": t, "segment_index": segment_index, "mode": mode}
     t.start()
     return jsonify({"job_id": job_id})
+
+
+def _read_remote_status(job_id: str) -> dict | None:
+    """Read status for a remote job from the Drive folder structure."""
+    done_path     = DRIVE_SYNC_DIR / "jobs" / "done"       / job_id / "status.json"
+    failed_path   = DRIVE_SYNC_DIR / "jobs" / "failed"     / job_id / "status.json"
+    progress_path = DRIVE_SYNC_DIR / "jobs" / "processing" / job_id / "progress.json"
+    proc_dir      = DRIVE_SYNC_DIR / "jobs" / "processing" / job_id
+    pending_path  = DRIVE_SYNC_DIR / "jobs" / "pending"    / job_id / "status.json"
+
+    base = {
+        "status": "pending", "progress": 0.0,
+        "frames_done": 0, "frames_total": 0,
+        "estimated_seconds": None, "output_path": None, "error": None,
+    }
+
+    if done_path.exists():
+        try:
+            data = json.loads(done_path.read_text())
+            rel  = data.get("output_path", "")
+            abs_path = str(DRIVE_SYNC_DIR / rel) if rel else None
+            return {**base, "status": "done", "progress": 1.0, "output_path": abs_path}
+        except Exception:
+            pass
+
+    if failed_path.exists():
+        try:
+            data = json.loads(failed_path.read_text())
+            return {**base, "status": "failed", "error": data.get("error", "Unknown error")}
+        except Exception:
+            return {**base, "status": "failed", "error": "Failed"}
+
+    if proc_dir.exists():
+        prog = {}
+        if progress_path.exists():
+            try:
+                prog = json.loads(progress_path.read_text())
+            except Exception:
+                pass
+        frames_done  = prog.get("frames_done", 0)
+        frames_total = prog.get("frames_total", 0)
+        progress     = (frames_done / frames_total) if frames_total else 0.0
+        return {**base, "status": "running", "progress": progress,
+                "frames_done": frames_done, "frames_total": frames_total}
+
+    if pending_path.exists():
+        return {**base, "status": "pending"}
+
+    return None
 
 
 @app.route("/api/inpaint/status/<job_id>")
 def api_inpaint_status(job_id: str):
     """
     Read the status JSON for an inpaint job from disk.
+    For local jobs reads from INPAINT_JOBS_DIR; for remote reads from Drive folder structure.
     Returns pending status if job exists in registry but status file not yet written.
     """
+    with _inpaint_lock:
+        job   = _inpaint_jobs.get(job_id)
+        known = job is not None
+    mode = (job or {}).get("mode", "local")
+
+    _PENDING = {
+        "status": "pending", "progress": 0.0,
+        "frames_done": 0, "frames_total": 0,
+        "estimated_seconds": None, "output_path": None, "error": None,
+    }
+
+    if mode == "remote":
+        status = _read_remote_status(job_id)
+        if status is None:
+            return jsonify(_PENDING) if known else (jsonify({"error": "job not found"}), 404)
+        return jsonify(status)
+
     from scripts.inpaint_worker import read_status
     status = read_status(job_id)
-    with _inpaint_lock:
-        known = job_id in _inpaint_jobs
     if status is None:
         if known:
-            return jsonify({
-                "status": "pending",
-                "progress": 0.0,
-                "frames_done": 0,
-                "frames_total": 0,
-                "estimated_seconds": None,
-                "output_path": None,
-                "error": None,
-            })
+            return jsonify(_PENDING)
         return jsonify({"error": "job not found"}), 404
     return jsonify(status)
 
@@ -508,20 +579,63 @@ def api_inpaint_status(job_id: str):
 @app.route("/api/inpaint/cancel/<job_id>", methods=["POST"])
 def api_inpaint_cancel(job_id: str):
     """
-    Cancel an inpaint job. The thread cannot be killed directly, but setting a
-    flag in the status file causes the worker to abort on next status write.
-    We also mark the status file as failed immediately so the UI can react.
+    Cancel an inpaint job.
+    Local: marks status file as failed so the UI can react.
+    Remote: deletes pending folder (if not picked up yet) or writes cancel.flag
+            (Colab checks this flag and aborts the running job).
     """
-    from scripts.inpaint_worker import _write_status, read_status
     with _inpaint_lock:
         if job_id not in _inpaint_jobs:
             return jsonify({"error": "job not found"}), 404
-        del _inpaint_jobs[job_id]
+        job = _inpaint_jobs.pop(job_id)
 
-    current = read_status(job_id) or {}
-    if current.get("status") not in ("done", "failed"):
-        _write_status(job_id, {**current, "status": "failed", "error": "cancelled by user"})
+    mode = job.get("mode", "local")
+
+    if mode == "remote":
+        pending_dir    = DRIVE_SYNC_DIR / "jobs" / "pending"    / job_id
+        processing_dir = DRIVE_SYNC_DIR / "jobs" / "processing" / job_id
+        done_dir       = DRIVE_SYNC_DIR / "jobs" / "done"       / job_id
+        failed_dir     = DRIVE_SYNC_DIR / "jobs" / "failed"     / job_id
+        if pending_dir.exists():
+            shutil.rmtree(str(pending_dir), ignore_errors=True)
+        elif processing_dir.exists():
+            (processing_dir / "cancel.flag").write_text("cancelled by user")
+        for d in (done_dir, failed_dir):
+            if d.exists():
+                shutil.rmtree(str(d), ignore_errors=True)
+    else:
+        from scripts.inpaint_worker import _write_status, read_status
+        current = read_status(job_id) or {}
+        if current.get("status") not in ("done", "failed"):
+            _write_status(job_id, {**current, "status": "failed", "error": "cancelled by user"})
+
     return jsonify({"ok": True})
+
+
+@app.route("/api/inpaint/colab_status")
+def api_colab_status():
+    """
+    Return whether the Colab worker is online based on the heartbeat.json file
+    written by the Colab notebook every 60 seconds.
+    { online: bool, gpu?: str, last_seen_seconds: int, reason?: str }
+    """
+    heartbeat_file = DRIVE_SYNC_DIR / "heartbeat.json"
+    if not heartbeat_file.exists():
+        return jsonify({"online": False, "reason": "no heartbeat file", "last_seen_seconds": 999})
+    try:
+        data    = json.loads(heartbeat_file.read_text())
+        updated = datetime.fromisoformat(data["updated_at"])
+        # Make updated timezone-aware if it isn't (Colab may write naive UTC)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - updated).total_seconds()
+        return jsonify({
+            "online":            age < 120,
+            "gpu":               data.get("colab_gpu", ""),
+            "last_seen_seconds": int(age),
+        })
+    except Exception as e:
+        return jsonify({"online": False, "reason": str(e), "last_seen_seconds": 999})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

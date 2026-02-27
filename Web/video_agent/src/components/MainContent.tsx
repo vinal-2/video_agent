@@ -49,7 +49,7 @@ interface MainContentProps {
   updateTransition: (index: number, transition: string) => void;
   updateCrop: (index: number, crop: CropSettings | null) => void;
   updateSamMask: (index: number, sam: SamMaskSettings | null) => void;
-  beginInpaint: (segIdx: number, videoPath: string, start: number, end: number, maskB64: string) => Promise<string>;
+  beginInpaint: (segIdx: number, maskB64: string, mode: "local" | "remote") => Promise<string>;
   removeInpaintJob: (jobId: string) => Promise<void>;
   renderWithInpainting: () => Promise<void>;
   acceptAll: () => void;
