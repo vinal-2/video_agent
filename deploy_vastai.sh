@@ -164,14 +164,14 @@ source .venv/bin/activate
 SAM2_PIP_OK=0
 SAM2_DL_OK=0
 
-if pip show sam-2 &>/dev/null 2>&1; then
-    echo "sam-2 already installed"
+if pip show sam2 &>/dev/null 2>&1; then
+    echo "sam2 already installed"
     SAM2_PIP_OK=1
 else
-    if pip install sam-2; then
+    if pip install sam2; then
         SAM2_PIP_OK=1
     else
-        echo "FAIL: pip install sam-2 failed"
+        echo "FAIL: pip install sam2 failed"
     fi
 fi
 
