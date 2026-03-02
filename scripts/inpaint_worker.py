@@ -7,8 +7,10 @@ Calls ProPainter's inference_propainter.py as a subprocess.
 Writes progress to a JSON status file so Flask can poll it.
 Returns path to the inpainted output clip on success.
 
-ProPainter location: D:\\video-agent\\ProPainter\\
-Weights location:    D:\\video-agent\\ProPainter\\weights\\
+ProPainter location: set via PROPAINTER_DIR env var
+  Linux default:   /workspace/ProPainter
+  Windows example: set PROPAINTER_DIR=D:\video-agent\ProPainter
+Weights location:  $PROPAINTER_DIR/weights/
 
 Usage (CLI):
   python -m scripts.inpaint_worker \\
@@ -46,7 +48,7 @@ import cv2
 import numpy as np
 
 BASE_DIR           = Path(__file__).resolve().parent.parent
-PROPAINTER_DIR     = BASE_DIR / "ProPainter"
+PROPAINTER_DIR     = Path(os.environ.get("PROPAINTER_DIR", "/workspace/ProPainter"))
 PROPAINTER_SCRIPT  = PROPAINTER_DIR / "inference_propainter.py"
 PROPAINTER_WEIGHTS = PROPAINTER_DIR / "weights"
 

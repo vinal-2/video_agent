@@ -26,7 +26,9 @@ import cv2
 import numpy as np
 
 BASE_DIR       = Path(__file__).resolve().parent.parent
-SAM_CHECKPOINT = BASE_DIR / "style" / "sam_vit_b.pth"
+SAM_CHECKPOINT = Path(
+    os.environ.get("SAM_CHECKPOINT", str(BASE_DIR / "style" / "sam_vit_b.pth"))
+)
 SAM_MODEL_TYPE = "vit_b"
 SAM_DOWNLOAD_URL = (
     "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"

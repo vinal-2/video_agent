@@ -199,7 +199,9 @@ Defined in `scripts/transitions.py`. Auto-assigned by `editing_brain.py`.
 
 ## ProPainter Integration
 
-Installed at: `D:\video-agent\ProPainter\`
+Installed path is configurable via `PROPAINTER_DIR` env var.
+Linux default: `/workspace/ProPainter`
+Windows example: `set PROPAINTER_DIR=D:\video-agent\ProPainter`
 
 Critical runtime notes:
 - `--cpu` flag does NOT exist — omit it
@@ -292,3 +294,19 @@ number if known.
 
 Never skip the end-of-session update — even a "nothing worked" entry
 is more valuable than a gap in the log.
+
+---
+
+## Portability Rules
+
+VideoAgent runs on Windows (dev) and Ubuntu/Vast.ai (deploy). Follow these rules to keep it portable:
+
+1. **All file paths via env vars** — use `os.environ.get("VAR", "/workspace/default")`. Never hardcode `D:\`, `C:\`, or `/workspace/...` in source code. Linux `/workspace/...` paths are the defaults; Windows users override via `.env`.
+
+2. **`.env.example` is the canonical reference** — every env var the code reads must have an entry there with a comment explaining its purpose. Update it whenever you add a new `os.environ.get()` call.
+
+3. **Never commit `.env` or model weights** — `.env` is in `.gitignore`. So are `style/*.pth` and `style/*.pt`. The `output/`, `raw_clips/`, and `logs/` directories are also excluded.
+
+4. **`deploy_vastai.sh` is the single setup command** — for any new server, `git clone` the repo then `bash deploy_vastai.sh`. The script is idempotent (safe to re-run) and prints PASS/FAIL for each of 12 steps.
+
+5. **New external tool = new env var** — when adding a new AI tool (model, external repo, binary), always add: (a) an `os.environ.get()` in the Python script, (b) an entry in `.env.example`, and (c) a step in `deploy_vastai.sh`.

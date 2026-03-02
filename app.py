@@ -120,7 +120,7 @@ def _collect_warnings() -> list[str]:
         _, _, free = shutil.disk_usage(BASE_DIR)
         free_gb = free / (1024 ** 3)
         if free_gb < 5:
-            warnings.append(f"Low disk space: {free_gb:.1f} GB free on {BASE_DIR.drive}")
+            warnings.append(f"Low disk space: {free_gb:.1f} GB free on {BASE_DIR}")
     except Exception:
         warnings.append("Unable to read disk space information.")
     with _state_lock:
@@ -437,27 +437,42 @@ def api_output_latest():
 
 # ── Inpaint endpoints ─────────────────────────────────────────────────────────
 
+_VALID_ENGINES = {"propainter", "lama", "lama+e2fgvi", "diffueraser"}
+
+
 @app.route("/api/inpaint/start", methods=["POST"])
 def api_inpaint_start():
     """
-    Start a ProPainter inpaint job in a background thread.
-    Body: { segment_index, video_path, start, end, mask_b64, mode? }
-    mode: "local" (default) | "remote"
+    Start an inpaint job in a background thread.
+
+    Body: { segment_index, video_path, start, end, mask_b64, engine?, mode? }
+      engine: "lama" (default) | "lama+e2fgvi" | "propainter" | "diffueraser"
+      mode:   "local" (default) | "remote"  — only used when engine="propainter"
+
     Returns: { job_id: str }
     """
     import uuid as _uuid
-    body           = request.get_json(force=True) or {}
-    segment_index  = int(body.get("segment_index", 0))
-    video_path     = body.get("video_path", "")
-    start          = float(body.get("start", 0))
-    end            = float(body.get("end", 0))
-    mask_b64       = body.get("mask_b64", "")
-    mode           = body.get("mode", "local")
+    body          = request.get_json(force=True) or {}
+    segment_index = int(body.get("segment_index", 0))
+    video_path    = body.get("video_path", "")
+    start         = float(body.get("start", 0))
+    end           = float(body.get("end", 0))
+    mask_b64      = body.get("mask_b64", "")
+    engine_raw    = body.get("engine", "lama")
+    engine        = str(engine_raw).strip().lower() or "lama"
+    mode_raw      = body.get("mode", "local")   # kept for ProPainter remote path
+    mode          = str(mode_raw).strip().lower() or "local"
 
     if not video_path:
         return jsonify({"error": "video_path required"}), 400
     if not mask_b64:
         return jsonify({"error": "mask_b64 required"}), 400
+    if engine not in _VALID_ENGINES:
+        return jsonify({"error": f"Invalid engine {engine!r}. Must be one of: {sorted(_VALID_ENGINES)}"}), 400
+    if mode not in {"local", "remote"}:
+        return jsonify({"error": "Invalid mode. Must be 'local' or 'remote'."}), 400
+    if engine != "propainter" and mode == "remote":
+        return jsonify({"error": "Remote mode is only supported when engine='propainter'."}), 400
 
     p = Path(video_path)
     if not p.is_absolute():
@@ -465,31 +480,58 @@ def api_inpaint_start():
     if not p.exists():
         return jsonify({"error": f"Video not found: {p}"}), 404
 
-    if mode == "local":
-        if not (Path(__file__).resolve().parent / "ProPainter" / "inference_propainter.py").exists():
-            return jsonify({"error": f"ProPainter not found at {BASE_DIR / 'ProPainter'}"}), 501
-    elif mode == "remote":
-        if not DRIVE_SYNC_DIR.exists():
-            return jsonify({
-                "error": "Drive sync folder not found. Set DRIVE_SYNC_DIR in .env and ensure Drive for Desktop is running."
-            }), 503
+    # Pre-flight checks — only ProPainter requires external binaries / Drive
+    if engine == "propainter":
+        if mode == "local":
+            _propainter_dir = Path(os.environ.get("PROPAINTER_DIR", "/workspace/ProPainter"))
+            if not (_propainter_dir / "inference_propainter.py").exists():
+                return jsonify({"error": f"ProPainter not found at {_propainter_dir}"}), 501
+        elif mode == "remote":
+            if not DRIVE_SYNC_DIR.exists():
+                return jsonify({
+                    "error": "Drive sync folder not found. Set DRIVE_SYNC_DIR in .env and ensure Drive for Desktop is running."
+                }), 503
 
     job_id = str(_uuid.uuid4())
 
     def _run():
         try:
-            if mode == "remote":
-                from scripts.inpaint_worker import run_remote_inpaint_job
-                run_remote_inpaint_job(job_id, str(p), mask_b64, start, end, segment_index)
-            else:
-                from scripts.inpaint_worker import run_inpaint_job
-                run_inpaint_job(job_id, str(p), mask_b64, start, end)
+            if engine == "propainter":
+                if mode == "remote":
+                    from scripts.inpaint_worker import run_remote_inpaint_job
+                    run_remote_inpaint_job(job_id, str(p), mask_b64, start, end, segment_index)
+                else:
+                    from scripts.inpaint_worker import run_inpaint_job
+                    run_inpaint_job(job_id, str(p), mask_b64, start, end)
+
+            elif engine == "lama+e2fgvi":
+                from scripts.lama_worker import run_lama_job, _probe_video, INPAINT_TEMP_DIR
+                from scripts.e2fgvi_worker import run_e2fgvi_job
+                fps        = _probe_video(str(p))["fps"]
+                frames_dir = INPAINT_TEMP_DIR / job_id / "inpainted"
+                run_lama_job(job_id, str(p), mask_b64, start, end, keep_frames=True)
+                run_e2fgvi_job(job_id, frames_dir, mask_b64, fps)
+                shutil.rmtree(str(INPAINT_TEMP_DIR / job_id), ignore_errors=True)
+
+            elif engine == "diffueraser":
+                from scripts.diffueraser_worker import run_diffueraser_job
+                run_diffueraser_job(job_id, str(p), mask_b64, start, end)
+
+            else:  # "lama"
+                from scripts.lama_worker import run_lama_job
+                run_lama_job(job_id, str(p), mask_b64, start, end)
+
         except Exception as exc:
-            print(f"[inpaint] job {job_id[:8]} failed in thread: {exc}", flush=True)
+            print(f"[inpaint] job {job_id[:8]} ({engine}) failed in thread: {exc}", flush=True)
 
     t = threading.Thread(target=_run, daemon=True)
     with _inpaint_lock:
-        _inpaint_jobs[job_id] = {"thread": t, "segment_index": segment_index, "mode": mode}
+        _inpaint_jobs[job_id] = {
+            "thread":        t,
+            "segment_index": segment_index,
+            "mode":          mode,
+            "engine":        engine,
+        }
     t.start()
     return jsonify({"job_id": job_id})
 

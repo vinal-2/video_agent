@@ -10,7 +10,7 @@ import {
   RotateCcw,
   Wand2,
 } from "lucide-react";
-import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings, SamMaskSettings, InpaintJob } from "@/lib/api";
+import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings, SamMaskSettings, InpaintJob, InpaintEngine } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 import SegmentCard from "@/components/SegmentCard";
 import InpaintTab from "@/components/InpaintTab";
@@ -49,7 +49,7 @@ interface MainContentProps {
   updateTransition: (index: number, transition: string) => void;
   updateCrop: (index: number, crop: CropSettings | null) => void;
   updateSamMask: (index: number, sam: SamMaskSettings | null) => void;
-  beginInpaint: (segIdx: number, maskB64: string, mode: "local" | "remote") => Promise<string>;
+  beginInpaint: (segIdx: number, maskB64: string, engine: InpaintEngine) => Promise<string>;
   removeInpaintJob: (jobId: string) => Promise<void>;
   renderWithInpainting: () => Promise<void>;
   acceptAll: () => void;

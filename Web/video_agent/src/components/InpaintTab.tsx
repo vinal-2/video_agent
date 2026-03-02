@@ -2,8 +2,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { SkipForward, Paintbrush, Loader2, CheckCircle2, AlertCircle, RotateCcw, PlayCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import type { Segment, OutputInfo, InpaintJob, TrimState } from "@/lib/api";
-import { getColabStatus } from "@/lib/api";
+import type { Segment, OutputInfo, InpaintJob, TrimState, InpaintEngine } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 
 // ── DrawRegionModal ────────────────────────────────────────────────────────────
@@ -131,7 +130,7 @@ const DrawRegionModal = ({ open, segment, trim, onConfirm, onClose }: DrawRegion
           <DialogTitle className="text-foreground">Draw removal region</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
-          Paint over the area you want to remove. ProPainter will fill it in.
+          Paint over the area you want to remove. The selected engine will fill it in.
         </p>
 
         {/* Stacked: video thumbnail below, canvas on top.
@@ -209,7 +208,7 @@ interface InpaintTabProps {
   onBeginInpaint: (
     segmentIndex: number,
     maskB64: string,
-    mode: "local" | "remote",
+    engine: InpaintEngine,
   ) => Promise<string>;
   onCancelJob: (jobId: string) => Promise<void>;
   onSkip: () => void;
@@ -230,29 +229,10 @@ const InpaintTab = ({
   onRenderWithInpainting,
   running,
 }: InpaintTabProps) => {
-  const [drawingIndex, setDrawingIndex]     = useState<number | null>(null);
-  const [submitting, setSubmitting]         = useState<Record<number, boolean>>({});
-  const [renderBusy, setRenderBusy]         = useState(false);
-  const [mode, setMode]                     = useState<"local" | "remote">("local");
-  const [colabOnline, setColabOnline]       = useState(false);
-  const [colabGpu, setColabGpu]             = useState<string>("");
-
-  // Poll Colab status every 30s while this tab is mounted
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const s = await getColabStatus();
-        if (!cancelled) {
-          setColabOnline(s.online);
-          setColabGpu(s.gpu ?? "");
-        }
-      } catch { /* ignore */ }
-    };
-    poll();
-    const id = setInterval(poll, 30_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  const [drawingIndex, setDrawingIndex] = useState<number | null>(null);
+  const [submitting, setSubmitting]     = useState<Record<number, boolean>>({});
+  const [renderBusy, setRenderBusy]     = useState(false);
+  const [engine, setEngine]             = useState<InpaintEngine>("diffueraser");
 
   // Build a lookup: segmentIndex → most recent InpaintJob
   const jobBySegment = Object.values(inpaintJobs).reduce<Record<number, InpaintJob>>(
@@ -278,13 +258,13 @@ const InpaintTab = ({
     setDrawingIndex(null);
     setSubmitting((prev) => ({ ...prev, [segIdx]: true }));
     try {
-      await onBeginInpaint(segIdx, maskB64, mode);
+      await onBeginInpaint(segIdx, maskB64, engine);
     } catch (err) {
       console.error("inpaint start failed", err);
     } finally {
       setSubmitting((prev) => ({ ...prev, [segIdx]: false }));
     }
-  }, [segments, onBeginInpaint, mode]);
+  }, [segments, onBeginInpaint, engine]);
 
   const handleRender = () => {
     setRenderBusy(true);
@@ -314,7 +294,7 @@ const InpaintTab = ({
         <div>
           <h2 className="text-lg font-semibold text-foreground">Inpaint cleanup</h2>
           <p className="text-sm text-muted-foreground">
-            Draw regions to remove from individual clips. Powered by ProPainter.
+            Draw regions to remove from individual clips.
           </p>
         </div>
         <button
@@ -326,33 +306,32 @@ const InpaintTab = ({
         </button>
       </div>
 
-      {/* Mode selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground">Process on:</span>
-        <button
-          onClick={() => setMode("local")}
-          className={`px-3 py-1.5 rounded text-xs font-medium transition-colors border ${
-            mode === "local"
-              ? "gradient-primary-btn text-primary-foreground border-transparent"
-              : "border-border/50 text-muted-foreground hover:border-border/80"
-          }`}
-        >
-          Local
-        </button>
-        <button
-          onClick={() => colabOnline && setMode("remote")}
-          disabled={!colabOnline}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors border disabled:opacity-50 disabled:cursor-not-allowed ${
-            mode === "remote"
-              ? "gradient-primary-btn text-primary-foreground border-transparent"
-              : "border-border/50 text-muted-foreground hover:border-border/80"
-          }`}
-        >
-          Remote (Colab)
-          {colabOnline
-            ? <span className="text-green-400">● {colabGpu || "online"}</span>
-            : <span className="text-muted-foreground">○ offline</span>}
-        </button>
+      {/* Engine selector */}
+      <div className="flex flex-wrap items-stretch gap-2">
+        {(
+          [
+            { value: "diffueraser", label: "DiffuEraser (AI)", eta: "~10 min/clip" },
+            { value: "lama", label: "LaMa (Fast)", eta: "~2 min/clip" },
+            { value: "lama+e2fgvi", label: "LaMa + E2FGVI (Quality)", eta: "~5 min/clip" },
+            { value: "propainter", label: "ProPainter (Legacy)", eta: "~25 min/clip" },
+          ] as { value: InpaintEngine; label: string; eta: string }[]
+        ).map(({ value, label, eta }) => {
+          const active = engine === value;
+          return (
+            <button
+              key={value}
+              onClick={() => setEngine(value)}
+              className={`flex flex-col items-start px-3 py-2 rounded text-xs font-medium transition-colors border ${
+                active
+                  ? "gradient-primary-btn text-primary-foreground border-transparent"
+                  : "border-border/50 text-muted-foreground hover:border-border/80"
+              }`}
+            >
+              <span>{label}</span>
+              <span className={`text-[11px] font-normal ${active ? "opacity-80" : "opacity-60"}`}>{eta}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Output reference video */}
@@ -413,9 +392,9 @@ const InpaintTab = ({
                 )}
 
                 {/* Remote pending hint */}
-                {job && job.status.status === "pending" && mode === "remote" && (
+                {job && job.status.status === "pending" && job.mode === "remote" && (
                   <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
-                    Waiting for Colab to pick up job…
+                    Waiting for Colab to pick up job...
                   </p>
                 )}
 

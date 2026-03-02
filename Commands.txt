@@ -74,10 +74,10 @@ python -m scripts.analyze_and_edit --ui-mode
 
 Website launch
 powershell -ExecutionPolicy Bypass -File D:\video-agent\scripts\build_ui.ps1
-pwsh -File D:\video-agent\scripts\build_ui.ps1
+powershell -File D:\video-agent\scripts\build_ui.ps1
 Web/video_agent npm install && npm run build
-All npm actions must run inside Web/video_agent (npm install && npm run build), after which python -m app at repo root serves the fresh build on http://localhost:5100.
-python -m app
+All npm actions must run inside Web/video_agent (npm install && npm run build), after which python -m app at repo root serves the fresh build on 
+
 
 ──────────────────────────────────────────────────────────────────────────────
 Git — commit and push
@@ -117,25 +117,33 @@ Notes:
 - The local branch is named 'master'; GitHub branch is 'main' → always push as master:main
 - If GitHub rejects with "cannot force-push": branch protection is on — use master:main (normal push) not --force
 
+**Planning & Architecture**
+- `/plan` — Implementation planning before writing code
+- `/architect` — System design decisions (delegates to architect agent)
 
-The three prompts you'll actually use:
+**Code Quality**
+- `/code-review` — Quality and security review
+- `/refactor-clean` — Dead code removal and cleanup
+- `/build-fix` — Fix build errors
+- `/go-review` — Go-specific code review
+- `/go-build` — Fix Go build errors
 
-Every morning when you open VS Code, paste this first:
+**Testing**
+- `/tdd` — Test-driven development workflow
+- `/e2e` — Generate Playwright E2E tests
+- `/go-test` — Go TDD workflow
 
-Read CLAUDE.md, then read the last entry in SESSIONS.md.
-Summarise the current state of the project in 3 sentences,
-list any known broken items, and tell me what we should
-work on first today.
+**Memory & Learning**
+- `/learn` — Extract patterns from current session into skills
+- `/checkpoint` — Save verification state mid-session
+- `/verify` — Run verification loop
+- `/evolve` — Cluster related instincts into skills
+- `/skill-create` — Generate skills from git history
 
-Every time you finish a session, paste this before closing:
+**Instincts**
+- `/instinct-status` — View learned instincts with confidence scores
+- `/instinct-import` — Import instincts from a file
+- `/instinct-export` — Export your instincts for sharing
 
-Update SESSIONS.md with a new entry for this session.
-Follow the format in the file exactly. Be specific about
-file names and line numbers. Make "Next session starts with"
-a single concrete command or action, not a vague goal.
-
-When something unexpectedly breaks mid-session:
-
-Before fixing this, add a "Broken" note to the current
-SESSIONS.md entry with the error, the file, and the line
-number if known.
+**Setup & Config**
+- `/setup-pm` — Configure preferred package manager

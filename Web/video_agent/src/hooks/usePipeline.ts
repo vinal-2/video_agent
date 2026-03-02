@@ -9,6 +9,7 @@ import {
   SamMaskSettings,
   InpaintJob,
   InpaintJobStatus,
+  InpaintEngine,
   DEFAULT_GRADE,
   defaultConfig,
   OutputInfo,
@@ -352,17 +353,19 @@ export function usePipeline() {
   const beginInpaint = useCallback(async (
     segmentIndex: number,
     maskB64: string,
-    mode: "local" | "remote" = "local",
+    engine: InpaintEngine = "lama",
   ) => {
-    const seg  = segments[segmentIndex];
-    const trim = trimData[segmentIndex];
+    const seg      = segments[segmentIndex];
+    const trim     = trimData[segmentIndex];
+    const jobMode: "local" | "remote" = "local";
     const { job_id } = await startInpaintJob({
       segment_index: segmentIndex,
       video_path:    seg?.video_path ?? "",
       start:         trim?.start ?? seg?.start ?? 0,
       end:           trim?.end   ?? seg?.end   ?? 0,
       mask_b64:      maskB64,
-      mode,
+      mode:          jobMode,
+      engine,
     });
     const initialStatus: InpaintJobStatus = {
       status: "pending",
@@ -375,7 +378,14 @@ export function usePipeline() {
     };
     setInpaintJobs((prev) => ({
       ...prev,
-      [job_id]: { jobId: job_id, segmentIndex, videoPath: seg?.video_path ?? "", status: initialStatus },
+      [job_id]: {
+        jobId: job_id,
+        segmentIndex,
+        videoPath: seg?.video_path ?? "",
+        status: initialStatus,
+        engine,
+        mode: jobMode,
+      },
     }));
     return job_id;
   }, [segments, trimData]);

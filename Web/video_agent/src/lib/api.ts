@@ -223,7 +223,11 @@ export interface InpaintJob {
   segmentIndex: number;
   videoPath: string;
   status: InpaintJobStatus;
+  engine?: InpaintEngine;
+  mode?: "local" | "remote";
 }
+
+export type InpaintEngine = "propainter" | "lama" | "lama+e2fgvi" | "diffueraser";
 
 export interface StartInpaintRequest {
   segment_index: number;
@@ -232,6 +236,7 @@ export interface StartInpaintRequest {
   end:           number;
   mask_b64:      string;
   mode:          "local" | "remote";
+  engine:        InpaintEngine;
 }
 
 export async function startInpaintJob(

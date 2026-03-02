@@ -13,6 +13,14 @@ build/
 venv/
 env/
 
+# ── Secrets & local config ────────────────────────────────────────────────────
+# .env.example IS committed — .env is NOT
+.env
+
+# ── Model weights (large binary — never commit) ───────────────────────────────
+style/*.pth
+style/*.pt
+
 # ── Project runtime artefacts ─────────────────────────────────────────────────
 # Large video files — never commit
 raw_clips/
