@@ -51,9 +51,9 @@ Thumbs.db
 .claude/
 
 # ── Stale root-level files from earlier scaffolding ───────────────────────────
-index.html
-logo.jpg
-package-lock.json
-python
-run.log
-New folder/
+/index.html
+/logo.jpg
+/package-lock.json
+/python
+/run.log
+/New folder/
