@@ -102,9 +102,12 @@ fi
 source .venv/bin/activate
 
 if pip install --upgrade pip \
-   && pip install -r requirements.txt; then
+   && pip install -r requirements.txt \
+   && pip install torch torchvision torchaudio \
+         --index-url https://download.pytorch.org/whl/cu128 \
+         --no-cache-dir; then
     _record "3_python_venv" "PASS"
-    echo "PASS: python venv ready"
+    echo "PASS: python venv ready (torch cu128 — Blackwell/RTX5090 compatible)"
 else
     _record "3_python_venv" "FAIL"
     echo "FAIL: pip install failed"
@@ -164,14 +167,18 @@ source .venv/bin/activate
 SAM2_PIP_OK=0
 SAM2_DL_OK=0
 
-if pip show sam2 &>/dev/null 2>&1; then
+if pip show sam-2 &>/dev/null 2>&1 || pip show SAM-2 &>/dev/null 2>&1; then
     echo "sam2 already installed"
     SAM2_PIP_OK=1
 else
-    if pip install sam2; then
+    # Install from GitHub with --no-deps to avoid triggering a torch build
+    # (PyPI sam2 requires torch>=2.5.1 as a build dep which conflicts with
+    #  DiffuEraser's pinned torch==2.3.1 and causes disk-exhausting downloads)
+    if pip install "git+https://github.com/facebookresearch/sam2.git" --no-deps \
+       && pip install hydra-core iopath; then
         SAM2_PIP_OK=1
     else
-        echo "FAIL: pip install sam2 failed"
+        echo "FAIL: sam2 install failed"
     fi
 fi
 
@@ -227,7 +234,12 @@ fi
 
 if (( DE_CLONE_OK )); then
     source .venv/bin/activate
-    if pip install -r "$DE_DIR/requirements.txt"; then
+    # Skip torch/torchvision/torchaudio — DiffuEraser pins torch==2.3.1 which
+    # lacks Blackwell (sm_120) support and bloats disk. Torch is already
+    # installed at cu128 from Step 3.
+    grep -v -E "^torch==|^torchvision==|^torchaudio==" "$DE_DIR/requirements.txt" \
+        > /tmp/de_reqs_notorch.txt
+    if pip install -r /tmp/de_reqs_notorch.txt; then
         DE_REQS_OK=1
     else
         echo "FAIL: pip install DiffuEraser requirements failed"
@@ -273,17 +285,21 @@ if [[ -n "$(ls -A "$SD_DIR" 2>/dev/null)" ]]; then
     echo "PASS: $SD_DIR already populated"
 else
     mkdir -p "$SD_DIR"
-    echo "Downloading Stable Diffusion v1.5 from HuggingFace (~4 GB, excl. *.ot / *.msgpack)..."
+    echo "Downloading Stable Diffusion v1.5 from HuggingFace (~4 GB, diffusers format only)..."
+    # Excludes: monolithic .ckpt checkpoints, pruned variants, safety_checker (~25 GB saved)
+    # HuggingFace snapshot_download also caches to ~/.cache — purge after to free disk.
     if python3 - <<'PYEOF'
 from huggingface_hub import snapshot_download
 snapshot_download(
     "stable-diffusion-v1-5/stable-diffusion-v1-5",
     local_dir="/workspace/stable-diffusion-v1-5",
-    ignore_patterns=["*.ot", "*.msgpack"],
+    ignore_patterns=["*.ot", "*.msgpack", "*.ckpt", "v1-5-pruned*", "safety_checker*"],
 )
 print("download ok")
 PYEOF
     then
+        echo "Cleaning HuggingFace download cache (~20 GB freed)..."
+        rm -rf ~/.cache/huggingface/hub/
         _record "8_stable_diffusion" "PASS"
         echo "PASS: Stable Diffusion v1.5 downloaded"
     else
