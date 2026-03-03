@@ -194,7 +194,7 @@ You'll use this later to run Flask in one pane and monitor in another.
 
 ```bash
 cd /workspace
-git clone https://github.com/<YOUR_USERNAME>/<YOUR_REPO>.git videoagent
+git clone https://github.com/vinal-2/video_agent.git videoagent
 cd videoagent
 ls
 ```
@@ -218,32 +218,29 @@ git pull origin main
 
 ```bash
 cd /workspace/videoagent
-
-# Copy template
 cp .env.example .env
+```
 
-# Edit with Linux paths
+The `.env.example` file already has correct `/workspace/...` defaults for Vast.ai — no path editing needed. The only things worth changing are LLM-related:
+
+```bash
 nano .env
 ```
 
-Paste and fill in this for Vast.ai:
+Find and set these two lines (Vast.ai has no LM Studio by default):
 ```
-BASE_DIR=/workspace/videoagent
-RAW_CLIPS_DIR=/workspace/videoagent/raw_clips
-OUTPUT_DIR=/workspace/videoagent/output
-STYLE_DIR=/workspace/videoagent/style
-SAM_CHECKPOINT=/workspace/videoagent/style/sam_vit_b.pth
-SAM2_CHECKPOINT=/workspace/sam2_checkpoints/sam2_hiera_large.pt
-SAM2_MODEL_CFG=sam2_hiera_large
-DIFFUERASER_DIR=/workspace/DiffuEraser
-DIFFUERASER_WEIGHTS=/workspace/DiffuEraser/weights
-SD15_DIR=/workspace/stable-diffusion-v1-5
-FLASK_HOST=0.0.0.0
-FLASK_PORT=5100
-FLASK_DEBUG=False
+ENABLE_LLM_PLANNER=0
+VISION_TAGGER_MODEL=none
 ```
 
+Everything else (`PROPAINTER_DIR`, `DIFFUERASER_DIR`, `STABLE_DIFFUSION_DIR`, `SAM2_CHECKPOINTS_DIR`, etc.) already points to the correct `/workspace/...` paths.
+
 Save: `Ctrl+X` → `Y` → `Enter`
+
+To verify the file looks right:
+```bash
+grep -v "^#" .env | grep -v "^$"
+```
 
 ---
 
