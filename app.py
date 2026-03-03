@@ -533,6 +533,13 @@ def api_inpaint_start():
             "engine":        engine,
         }
     t.start()
+    # Write sidecar so _run_render can recover inpainted_path across pipeline re-runs
+    _jobs_dir = OUTPUT_DIR / "inpaint_jobs"
+    _jobs_dir.mkdir(parents=True, exist_ok=True)
+    (_jobs_dir / f"{job_id}.meta.json").write_text(
+        json.dumps({"segment_index": segment_index, "video_path": str(p)}),
+        encoding="utf-8",
+    )
     return jsonify({"job_id": job_id})
 
 
@@ -789,6 +796,35 @@ def _run_render(segments: list, env: dict):
         _emit(f"── Rendering {len(segments)} accepted segments ──")
 
         seg_file = OUTPUT_DIR / "_pending_segments.json"
+
+        # Recover inpainted_path from completed jobs not yet reflected in segment list.
+        # Handles the case where user re-runs the pipeline after inpainting — the new
+        # segments array from the frontend won't have inpainted_path set, but the
+        # completed job files and their sidecars still exist on disk.
+        _jobs_dir = OUTPUT_DIR / "inpaint_jobs"
+        for _meta_file in sorted(_jobs_dir.glob("*.meta.json")):
+            try:
+                _meta = json.loads(_meta_file.read_text(encoding="utf-8"))
+                _jid  = _meta_file.name[:-len(".meta.json")]
+                _jf   = _jobs_dir / f"{_jid}.json"
+                if not _jf.exists():
+                    continue
+                _job  = json.loads(_jf.read_text(encoding="utf-8"))
+                if _job.get("status") != "done" or not _job.get("output_path"):
+                    continue
+                _out  = _job["output_path"]
+                if not Path(_out).exists():
+                    continue
+                _vpath = _meta.get("video_path", "")
+                for seg in segments:
+                    if seg.get("inpainted_path"):
+                        continue
+                    if _vpath and seg.get("video_path") == _vpath:
+                        seg["inpainted_path"] = _out
+                        break
+            except Exception:
+                pass
+
         seg_file.write_text(json.dumps(segments), encoding="utf-8")
         with _state_lock:
             _pipeline_state["ffmpeg_progress"] = 0.0

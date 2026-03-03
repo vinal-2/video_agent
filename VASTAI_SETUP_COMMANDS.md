@@ -262,8 +262,9 @@ mkdir -p /workspace/sam2_checkpoints
 **From Windows PowerShell** (run this on your laptop, not the server):
 
 ```powershell
-scp -P <YOUR_PORT> -r "D:\video-agent\raw_clips\*" root@<YOUR_IP>:/workspace/videoagent/raw_clips/
+scp -P 22239 -r "D:\video-agent\raw_clips\*" root@185.227.170.193:/workspace/videoagent/raw_clips/
 ```
+scp -P 22239 "D:\video-agent\raw_clips\*" ssh -p 22239 root@185.227.170.193 -L 8080:localhost:8080
 
 This can take a while depending on clip size. Run it in a separate PowerShell window so it doesn't block you.
 

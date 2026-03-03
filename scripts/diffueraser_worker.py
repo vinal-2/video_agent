@@ -40,7 +40,7 @@ Environment variables (all have Linux/Vast.ai defaults):
   STABLE_DIFFUSION_DIR     SD 1.5 weights          (/workspace/stable-diffusion-v1-5)
   SAM2_CHECKPOINT          Full path to .pt file   (SAM2_CHECKPOINTS_DIR/sam2_hiera_large.pt)
   SAM2_CHECKPOINTS_DIR     Dir containing the .pt  (/workspace/sam2_checkpoints)
-  SAM2_MODEL_CFG           Hydra config name        (configs/sam2/sam2_hiera_large)
+  SAM2_MODEL_CFG           Hydra config name        (configs/sam2/sam2_hiera_l)
   DIFFUERASER_MAX_SIZE     Max short-side px        (960)
   DIFFUERASER_FALLBACK_SIZE  OOM fallback px        (640)
 """
@@ -86,7 +86,7 @@ SAM2_CHECKPOINT = Path(
         ),
     )
 )
-SAM2_MODEL_CFG = os.environ.get("SAM2_MODEL_CFG", "configs/sam2/sam2_hiera_large")
+SAM2_MODEL_CFG = os.environ.get("SAM2_MODEL_CFG", "configs/sam2/sam2_hiera_l")
 
 DE_MAX_SIZE      = int(os.environ.get("DIFFUERASER_MAX_SIZE",      "960"))
 DE_FALLBACK_SIZE = int(os.environ.get("DIFFUERASER_FALLBACK_SIZE", "640"))
@@ -407,6 +407,9 @@ def _run_diffueraser(
     de_dir_str = str(DE_DIR)
     if de_dir_str not in sys.path:
         sys.path.insert(0, de_dir_str)
+    # diffueraser.py hardcodes "weights/PCM_Weights" as a relative path inside
+    # pipeline.load_lora_weights() — chdir to DE_DIR so it resolves correctly.
+    os.chdir(str(DE_DIR))
 
     import torch
 
@@ -543,7 +546,7 @@ def run_diffueraser_job(
 
         probe      = _probe_video(video_path)
         rotation   = _detect_rotation(video_path)
-        fps        = probe["fps"]
+        fps        = round(probe["fps"])
         target_w, target_h = _target_dimensions(
             probe["width"], probe["height"], rotation, DE_MAX_SIZE
         )

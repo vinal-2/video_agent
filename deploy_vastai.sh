@@ -238,6 +238,8 @@ if (( DE_CLONE_OK )); then
     # Skip torch/torchvision/torchaudio — DiffuEraser pins torch==2.3.1 which
     # lacks Blackwell (sm_120) support and bloats disk. Torch is already
     # installed at cu128 from Step 3.
+    # Note: diffueraser.py uses relative path "weights/PCM_Weights" inside
+    # pipeline.load_lora_weights() — diffueraser_worker.py chdirs to DE_DIR before loading.
     grep -v -E "^torch==|^torchvision==|^torchaudio==" "$DE_DIR/requirements.txt" \
         > /tmp/de_reqs_notorch.txt
     if pip install -r /tmp/de_reqs_notorch.txt; then
@@ -247,25 +249,106 @@ if (( DE_CLONE_OK )); then
     fi
 fi
 
-if [[ -n "$(ls -A "$DE_WEIGHTS" 2>/dev/null)" ]]; then
-    echo "DiffuEraser weights already present"
-    DE_WEIGHTS_OK=1
+# DiffuEraser weights are split across 4 sources — download each subdir separately.
+# The main HuggingFace repo (lixiaowen-xw/DiffuEraser) was private; components are:
+#   diffuEraser/   — lixiaowen/DiffuEraser (no -xw suffix)
+#   sd-vae-ft-mse/ — stabilityai/sd-vae-ft-mse
+#   PCM_Weights/   — wangfuyun/PCM_Weights
+#   propainter/    — ProPainter GitHub releases (3 .pth files)
+
+_DE_MODEL_OK=0
+_DE_VAE_OK=0
+_DE_PCM_OK=0
+_DE_PROPAINTER_OK=0
+
+mkdir -p "$DE_WEIGHTS/diffuEraser" \
+         "$DE_WEIGHTS/sd-vae-ft-mse" \
+         "$DE_WEIGHTS/PCM_Weights" \
+         "$DE_WEIGHTS/propainter"
+
+# diffuEraser model weights
+if [[ -n "$(ls -A "$DE_WEIGHTS/diffuEraser" 2>/dev/null)" ]]; then
+    echo "diffuEraser weights already present"
+    _DE_MODEL_OK=1
 else
-    mkdir -p "$DE_WEIGHTS"
-    echo "Downloading DiffuEraser weights from HuggingFace (~7 GB)..."
+    echo "Downloading diffuEraser weights from HuggingFace..."
     if python3 - <<'PYEOF'
 from huggingface_hub import snapshot_download
 snapshot_download(
-    "lixiaowen-xw/DiffuEraser",
-    local_dir="/workspace/DiffuEraser/weights",
+    "lixiaowen/DiffuEraser",
+    local_dir="/workspace/DiffuEraser/weights/diffuEraser",
 )
 print("download ok")
 PYEOF
     then
-        DE_WEIGHTS_OK=1
+        _DE_MODEL_OK=1
     else
-        echo "FAIL: DiffuEraser weights download failed"
+        echo "FAIL: diffuEraser weights download failed"
     fi
+fi
+
+# SD VAE fine-tuned weights
+if [[ -n "$(ls -A "$DE_WEIGHTS/sd-vae-ft-mse" 2>/dev/null)" ]]; then
+    echo "sd-vae-ft-mse already present"
+    _DE_VAE_OK=1
+else
+    echo "Downloading sd-vae-ft-mse from HuggingFace..."
+    if python3 - <<'PYEOF'
+from huggingface_hub import snapshot_download
+snapshot_download(
+    "stabilityai/sd-vae-ft-mse",
+    local_dir="/workspace/DiffuEraser/weights/sd-vae-ft-mse",
+)
+print("download ok")
+PYEOF
+    then
+        _DE_VAE_OK=1
+    else
+        echo "FAIL: sd-vae-ft-mse download failed"
+    fi
+fi
+
+# PCM LoRA weights
+if [[ -n "$(ls -A "$DE_WEIGHTS/PCM_Weights" 2>/dev/null)" ]]; then
+    echo "PCM_Weights already present"
+    _DE_PCM_OK=1
+else
+    echo "Downloading PCM_Weights from HuggingFace..."
+    if python3 - <<'PYEOF'
+from huggingface_hub import snapshot_download
+snapshot_download(
+    "wangfuyun/PCM_Weights",
+    local_dir="/workspace/DiffuEraser/weights/PCM_Weights",
+)
+print("download ok")
+PYEOF
+    then
+        _DE_PCM_OK=1
+    else
+        echo "FAIL: PCM_Weights download failed"
+    fi
+fi
+
+# ProPainter prior weights — 3 files from GitHub releases
+PP_BASE="https://github.com/sczhou/ProPainter/releases/download/v0.1.0"
+_DE_PROPAINTER_OK=1
+for _pth in ProPainter.pth raft-things.pth recurrent_flow_completion.pth; do
+    _dest="$DE_WEIGHTS/propainter/$_pth"
+    if [[ -f "$_dest" ]] && _min_size "$_dest" $((10 * 1024 * 1024)); then
+        echo "$_pth already present"
+    else
+        echo "Downloading $_pth from GitHub releases..."
+        if wget -q "$PP_BASE/$_pth" -O "$_dest"; then
+            echo "  downloaded $_pth"
+        else
+            echo "FAIL: $_pth download failed"
+            _DE_PROPAINTER_OK=0
+        fi
+    fi
+done
+
+if (( _DE_MODEL_OK && _DE_VAE_OK && _DE_PCM_OK && _DE_PROPAINTER_OK )); then
+    DE_WEIGHTS_OK=1
 fi
 
 if (( DE_CLONE_OK && DE_REQS_OK && DE_WEIGHTS_OK )); then
