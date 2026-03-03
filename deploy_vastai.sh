@@ -105,9 +105,10 @@ if pip install --upgrade pip \
    && pip install -r requirements.txt \
    && pip install torch torchvision torchaudio \
          --index-url https://download.pytorch.org/whl/cu128 \
-         --no-cache-dir; then
+         --no-cache-dir \
+   && pip install "numpy<2.0" --no-cache-dir; then
     _record "3_python_venv" "PASS"
-    echo "PASS: python venv ready (torch cu128 — Blackwell/RTX5090 compatible)"
+    echo "PASS: python venv ready (torch cu128 — Blackwell/RTX5090 compatible, numpy<2)"
 else
     _record "3_python_venv" "FAIL"
     echo "FAIL: pip install failed"
