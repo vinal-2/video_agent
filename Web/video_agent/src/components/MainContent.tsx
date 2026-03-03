@@ -505,7 +505,7 @@ const OutputPanel = ({ outputInfo }: { outputInfo: OutputInfo | null }) => {
     <div className="h-full flex flex-col items-center justify-center gap-4 px-6 py-6">
       <video
         key={outputInfo.path}
-        src={`${outputInfo.path}?t=${Date.now()}`}
+        src={outputInfo.path}
         controls
         className="w-full max-w-3xl rounded-xl border border-border/60 bg-black"
       />

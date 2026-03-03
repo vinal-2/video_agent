@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gc
 import io
 import json
 import math
@@ -446,54 +447,68 @@ def _run_diffueraser(
     priori_path = temp_dir / "priori.mp4"
     result_path = temp_dir / "result.mp4"
 
-    video_inpainting_sd = DiffuEraser(
-        device,
-        str(SD15_DIR),
-        str(DE_WEIGHTS / "sd-vae-ft-mse"),
-        str(DE_WEIGHTS / "diffuEraser"),
-        ckpt="2-Step",
-    )
-    propainter_model = Propainter(str(DE_WEIGHTS / "propainter"), device=device)
+    video_inpainting_sd = None
+    propainter_model = None
+    try:
+        video_inpainting_sd = DiffuEraser(
+            device,
+            str(SD15_DIR),
+            str(DE_WEIGHTS / "sd-vae-ft-mse"),
+            str(DE_WEIGHTS / "diffuEraser"),
+            ckpt="2-Step",
+        )
+        propainter_model = Propainter(str(DE_WEIGHTS / "propainter"), device=device)
 
-    # Stage 1 — ProPainter prior
-    print(f"[diffueraser] {job_id[:8]}  Stage 1: ProPainter prior…")
-    status.update({"progress": 0.55})
-    _write_status(job_id, status)
+        # Stage 1 — ProPainter prior
+        print(f"[diffueraser] {job_id[:8]}  Stage 1: ProPainter prior…")
+        status.update({"progress": 0.55})
+        _write_status(job_id, status)
 
-    propainter_model.forward(
-        str(corrected_video),
-        str(mask_video),
-        str(priori_path),
-        video_length=video_length_s,
-        ref_stride=10,
-        neighbor_length=10,
-        subvideo_length=50,
-        mask_dilation=8,
-    )
+        propainter_model.forward(
+            str(corrected_video),
+            str(mask_video),
+            str(priori_path),
+            video_length=video_length_s,
+            ref_stride=10,
+            neighbor_length=10,
+            subvideo_length=50,
+            mask_dilation=8,
+        )
 
-    if not priori_path.exists():
-        raise RuntimeError(f"ProPainter prior produced no output at {priori_path}")
+        if not priori_path.exists():
+            raise RuntimeError(f"ProPainter prior produced no output at {priori_path}")
 
-    # Stage 2 — DiffuEraser diffusion
-    print(f"[diffueraser] {job_id[:8]}  Stage 2: DiffuEraser diffusion…")
-    status.update({"progress": 0.72})
-    _write_status(job_id, status)
+        # Stage 2 — DiffuEraser diffusion
+        print(f"[diffueraser] {job_id[:8]}  Stage 2: DiffuEraser diffusion…")
+        status.update({"progress": 0.72})
+        _write_status(job_id, status)
 
-    video_inpainting_sd.forward(
-        str(corrected_video),
-        str(mask_video),
-        str(priori_path),
-        str(result_path),
-        max_img_size=max_img_size,
-        video_length=video_length_s,
-        mask_dilation_iter=8,
-        guidance_scale=None,  # default = 0 per DiffuEraser docs
-    )
+        video_inpainting_sd.forward(
+            str(corrected_video),
+            str(mask_video),
+            str(priori_path),
+            str(result_path),
+            max_img_size=max_img_size,
+            video_length=video_length_s,
+            mask_dilation_iter=8,
+            guidance_scale=None,  # default = 0 per DiffuEraser docs
+        )
 
-    torch.cuda.empty_cache()
+        if not result_path.exists():
+            raise RuntimeError(f"DiffuEraser produced no output at {result_path}")
 
-    if not result_path.exists():
-        raise RuntimeError(f"DiffuEraser produced no output at {result_path}")
+    finally:
+        # Always release VRAM so subsequent jobs don't OOM
+        try:
+            del video_inpainting_sd
+        except Exception:
+            pass
+        try:
+            del propainter_model
+        except Exception:
+            pass
+        torch.cuda.empty_cache()
+        gc.collect()
 
     return result_path
 
