@@ -40,7 +40,7 @@ Environment variables (all have Linux/Vast.ai defaults):
   STABLE_DIFFUSION_DIR     SD 1.5 weights          (/workspace/stable-diffusion-v1-5)
   SAM2_CHECKPOINT          Full path to .pt file   (SAM2_CHECKPOINTS_DIR/sam2_hiera_large.pt)
   SAM2_CHECKPOINTS_DIR     Dir containing the .pt  (/workspace/sam2_checkpoints)
-  SAM2_MODEL_CFG           Hydra config name        (sam2_hiera_large)
+  SAM2_MODEL_CFG           Hydra config name        (configs/sam2/sam2_hiera_large)
   DIFFUERASER_MAX_SIZE     Max short-side px        (960)
   DIFFUERASER_FALLBACK_SIZE  OOM fallback px        (640)
 """
@@ -86,7 +86,7 @@ SAM2_CHECKPOINT = Path(
         ),
     )
 )
-SAM2_MODEL_CFG = os.environ.get("SAM2_MODEL_CFG", "sam2_hiera_large")
+SAM2_MODEL_CFG = os.environ.get("SAM2_MODEL_CFG", "configs/sam2/sam2_hiera_large")
 
 DE_MAX_SIZE      = int(os.environ.get("DIFFUERASER_MAX_SIZE",      "960"))
 DE_FALLBACK_SIZE = int(os.environ.get("DIFFUERASER_FALLBACK_SIZE", "640"))
