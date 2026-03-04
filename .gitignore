@@ -57,3 +57,11 @@ Thumbs.db
 /python
 /run.log
 /New folder/
+
+# ── External repos / large tool directories (installed by deploy_vastai.sh) ───
+ProPainter/
+everything-claude-code/
+
+# ── Windows / non-source artefacts ─────────────────────────────────────────────
+*.exe
+*.pdf
