@@ -1,219 +1,134 @@
-import { useRef, useState, useCallback, useEffect } from "react";
-import { SkipForward, Paintbrush, Loader2, CheckCircle2, AlertCircle, RotateCcw, PlayCircle } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  SkipForward,
+  Paintbrush,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  PlayCircle,
+  X,
+} from "lucide-react";
 import type { Segment, OutputInfo, InpaintJob, TrimState, InpaintEngine } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
+import InpaintCanvas from "@/components/InpaintCanvas";
 
-// ── DrawRegionModal ────────────────────────────────────────────────────────────
-//
-// Canvas over the segment thumbnail. User draws a freehand removal region.
-// On confirm, the canvas is exported as a binary PNG (white=remove, black=keep).
+// ── Engine options ─────────────────────────────────────────────────────────────
 
-interface DrawRegionModalProps {
-  open: boolean;
-  segment: Segment;
-  trim: TrimState;
-  onConfirm: (maskB64: string) => void;
-  onClose: () => void;
-}
-
-const CANVAS_W = 360;  // display width — height is computed from video AR
-
-const DrawRegionModal = ({ open, segment, trim, onConfirm, onClose }: DrawRegionModalProps) => {
-  const canvasRef   = useRef<HTMLCanvasElement>(null);
-  const paintingRef = useRef(false);
-  const [hasStrokes, setHasStrokes] = useState(false);
-  // Actual video pixel dimensions — determined when video metadata loads.
-  // Canvas internal resolution is set to match so the mask AR is correct.
-  const [videoNative, setVideoNative] = useState<{ w: number; h: number } | null>(null);
-
-  const canvasH = videoNative
-    ? Math.round(CANVAS_W * videoNative.h / videoNative.w)
-    : 640; // fallback before metadata loads
-
-  const fileName = segment.video_path?.split(/[/\\]/).pop() ?? "";
-  const midTime  = (trim.start + trim.end) / 2;
-  const videoUrl = `/video/${encodeURIComponent(fileName)}#t=${midTime.toFixed(2)}`;
-
-  // Reset state when modal opens
-  useEffect(() => {
-    if (!open) return;
-    setVideoNative(null);
-    setHasStrokes(false);
-  }, [open]);
-
-  // Clear canvas whenever canvasH changes (video metadata arrived)
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setHasStrokes(false);
-  }, [canvasH]);
-
-  const getPos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width  / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
-    return {
-      x: (clientX - rect.left)  * scaleX,
-      y: (clientY - rect.top)   * scaleY,
-    };
-  };
-
-  const startPaint = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    paintingRef.current = true;
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-    const { x, y } = getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
-  const paint = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!paintingRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-    const { x, y } = getPos(e);
-    ctx.lineTo(x, y);
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 28;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
-    setHasStrokes(true);
-  };
-
-  const stopPaint = () => { paintingRef.current = false; };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx || !canvas) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setHasStrokes(false);
-  };
-
-  const confirmMask = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    // Export as PNG — strokes are white on transparent bg → binarise:
-    // white pixels (alpha>0) stay white, transparent → black
-    const offscreen = document.createElement("canvas");
-    offscreen.width  = canvas.width;
-    offscreen.height = canvas.height;
-    const ctx2 = offscreen.getContext("2d");
-    if (!ctx2) return;
-    // Fill black background first
-    ctx2.fillStyle = "black";
-    ctx2.fillRect(0, 0, offscreen.width, offscreen.height);
-    // Draw white strokes on top
-    ctx2.drawImage(canvas, 0, 0);
-    const dataUrl = offscreen.toDataURL("image/png");
-    const b64     = dataUrl.split(",")[1];
-    onConfirm(b64);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="glass-surface border-border/60 max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-foreground">Draw removal region</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Paint over the area you want to remove. The selected engine will fill it in.
-        </p>
-
-        {/* Stacked: video thumbnail below, canvas on top.
-            Container height is set from the real video AR so the mask
-            pixel coordinates align with what ProPainter will process. */}
-        <div
-          className="relative rounded overflow-hidden bg-black select-none"
-          style={{ width: CANVAS_W, height: canvasH, maxWidth: "100%" }}
-        >
-          <video
-            src={videoUrl}
-            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-            preload="metadata"
-            muted
-            playsInline
-            onLoadedMetadata={(e) => {
-              const v = e.currentTarget;
-              if (v.videoWidth && v.videoHeight) {
-                setVideoNative({ w: v.videoWidth, h: v.videoHeight });
-              }
-            }}
-          />
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_W}
-            height={canvasH}
-            className="absolute inset-0 w-full h-full cursor-crosshair"
-            style={{ opacity: 0.6 }}
-            onMouseDown={startPaint}
-            onMouseMove={paint}
-            onMouseUp={stopPaint}
-            onMouseLeave={stopPaint}
-          />
-        </div>
-
-        <DialogFooter className="flex gap-2">
-          <button
-            onClick={clearCanvas}
-            className="flex items-center gap-1 text-xs px-3 py-2 rounded border border-border/50 text-muted-foreground hover:border-border/80 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Clear
-          </button>
-          <button
-            onClick={confirmMask}
-            disabled={!hasStrokes}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg gradient-primary-btn text-primary-foreground text-xs font-semibold disabled:opacity-50 transition-colors"
-          >
-            <Paintbrush className="w-3.5 h-3.5" />
-            Confirm region
-          </button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
+const ENGINES: Array<{
+  value:  InpaintEngine;
+  label:  string;
+  time:   string;
+  qual:   string;
+  method: string;
+}> = [
+  { value: "diffueraser", label: "DiffuEraser",   time: "~10 min/clip", qual: "Best quality", method: "Generative reconstruction" },
+  { value: "lama",        label: "LaMa",          time: "~2 min/clip",  qual: "Good quality", method: "Pattern-based fill"         },
+  { value: "lama+e2fgvi", label: "LaMa + E2FGVI", time: "~5 min/clip",  qual: "High quality", method: "Temporal smoothing"         },
+  { value: "propainter",  label: "ProPainter",    time: "~25 min/clip", qual: "Slowest",      method: "Optical flow"               },
+];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function formatSeconds(s: number | null): string {
-  if (s === null) return "";
-  if (s < 60)  return `${s}s`;
+function fmtSeconds(s: number): string {
+  if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
+
+function useElapsed(active: boolean): string {
+  const [secs, setSecs] = useState(0);
+  const ref = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (active) {
+      setSecs(0);
+      ref.current = setInterval(() => setSecs((s) => s + 1), 1000);
+    } else {
+      if (ref.current) clearInterval(ref.current);
+    }
+    return () => { if (ref.current) clearInterval(ref.current); };
+  }, [active]);
+
+  return active ? fmtSeconds(secs) : "";
+}
+
+function parsePhaseLabel(status: string): string {
+  if (status === "pending") return "Queued...";
+  if (status === "running") return "Inpainting...";
+  if (status === "done")    return "Complete";
+  if (status === "failed")  return "Failed";
+  return status;
+}
+
+// ── Per-job progress widget ────────────────────────────────────────────────────
+
+const JobProgress = ({ job }: { job: InpaintJob }) => {
+  const isRunning = job.status.status === "running" || job.status.status === "pending";
+  const elapsed   = useElapsed(isRunning);
+  const pct       = Math.round(job.status.progress * 100);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-secondary)" }}>
+          {parsePhaseLabel(job.status.status)}
+        </span>
+        {elapsed && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
+            {elapsed} elapsed
+          </span>
+        )}
+      </div>
+
+      {job.status.status === "running" && (
+        <>
+          <div className="relative overflow-hidden rounded-full" style={{ height: 4, background: "var(--bg-tertiary)" }}>
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: `${pct}%`, background: "linear-gradient(90deg, var(--accent-secondary), var(--accent-primary))" }}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            {job.status.frames_total > 0 && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
+                {job.status.frames_done} / {job.status.frames_total} frames
+              </span>
+            )}
+            {job.status.estimated_seconds !== null && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
+                ~{fmtSeconds(job.status.estimated_seconds)} left
+              </span>
+            )}
+          </div>
+        </>
+      )}
+
+      {job.status.status === "failed" && job.status.error && (
+        <p
+          className="text-[10px] truncate"
+          style={{ fontFamily: "var(--font-mono)", color: "#f87171" }}
+          title={job.status.error}
+        >
+          {job.status.error.slice(0, 80)}
+        </p>
+      )}
+    </div>
+  );
+};
 
 // ── InpaintTab ────────────────────────────────────────────────────────────────
 
 interface InpaintTabProps {
-  segments: Segment[];
-  segmentStates: Record<number, SegmentDecision | undefined>;
-  trimData: Record<number, TrimState>;
-  inpaintJobs: Record<string, InpaintJob>;
-  outputInfo: OutputInfo | null;
-  phase: string;
-  onBeginInpaint: (
-    segmentIndex: number,
-    maskB64: string,
-    engine: InpaintEngine,
-  ) => Promise<string>;
-  onCancelJob: (jobId: string) => Promise<void>;
-  onSkip: () => void;
+  segments:               Segment[];
+  segmentStates:          Record<number, SegmentDecision | undefined>;
+  trimData:               Record<number, TrimState>;
+  inpaintJobs:            Record<string, InpaintJob>;
+  outputInfo:             OutputInfo | null;
+  phase:                  string;
+  onBeginInpaint:         (segIdx: number, maskB64: string, engine: InpaintEngine) => Promise<string>;
+  onCancelJob:            (jobId: string) => Promise<void>;
+  onSkip:                 () => void;
   onRenderWithInpainting: () => Promise<void>;
-  running: boolean;
+  running:                boolean;
 }
 
 const InpaintTab = ({
@@ -234,27 +149,22 @@ const InpaintTab = ({
   const [renderBusy, setRenderBusy]     = useState(false);
   const [engine, setEngine]             = useState<InpaintEngine>("diffueraser");
 
-  // Build a lookup: segmentIndex → most recent InpaintJob
   const jobBySegment = Object.values(inpaintJobs).reduce<Record<number, InpaintJob>>(
     (acc, job) => {
-      const existing = acc[job.segmentIndex];
-      if (!existing) return { ...acc, [job.segmentIndex]: job };
-      // keep more recent (higher status priority: done > running > pending)
+      if (!acc[job.segmentIndex]) return { ...acc, [job.segmentIndex]: job };
       return acc;
     },
     {},
   );
 
-  // Accepted segments only (same ones that were rendered)
   const acceptedSegments = segments
     .map((seg, idx) => ({ seg, idx }))
     .filter(({ idx }) => segmentStates[idx] !== "rejected");
 
-  const doneJobs = Object.values(inpaintJobs).filter((j) => j.status.status === "done");
-  const canRenderWithInpaint = doneJobs.length > 0 && !running && !renderBusy;
+  const doneJobs  = Object.values(inpaintJobs).filter((j) => j.status.status === "done");
+  const canRender = doneJobs.length > 0 && !running && !renderBusy;
 
   const handleConfirmMask = useCallback(async (segIdx: number, maskB64: string) => {
-    if (!segments[segIdx]) return;
     setDrawingIndex(null);
     setSubmitting((prev) => ({ ...prev, [segIdx]: true }));
     try {
@@ -264,224 +174,223 @@ const InpaintTab = ({
     } finally {
       setSubmitting((prev) => ({ ...prev, [segIdx]: false }));
     }
-  }, [segments, onBeginInpaint, engine]);
+  }, [onBeginInpaint, engine]);
 
   const handleRender = () => {
     setRenderBusy(true);
     onRenderWithInpainting()
-      .then(() => onSkip())   // navigate to Output tab once render is queued
+      .then(() => onSkip())
       .catch((err) => console.error(err))
       .finally(() => setRenderBusy(false));
   };
 
   if (phase !== "done" && !outputInfo) {
     return (
-      <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-        Inpaint tab is available after rendering — complete the Review step first.
+      <div className="h-full flex flex-col items-center justify-center gap-3" style={{ color: "var(--text-secondary)" }}>
+        <Paintbrush className="w-8 h-8" style={{ color: "var(--text-muted)" }} />
+        <p className="text-sm">Inpaint tab is available after rendering.</p>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>Complete the Review step and render first.</p>
       </div>
     );
   }
 
-  const drawingSegment = drawingIndex !== null ? segments[drawingIndex] : null;
-  const drawingTrim    = drawingIndex !== null
-    ? (trimData[drawingIndex] ?? { start: drawingSegment!.start, end: drawingSegment!.end })
-    : { start: 0, end: 0 };
-
   return (
-    <div className="h-full overflow-y-auto px-6 py-4 space-y-5">
+    <div className="h-full overflow-y-auto px-6 py-5 space-y-6">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Inpaint cleanup</h2>
-          <p className="text-sm text-muted-foreground">
-            Draw regions to remove from individual clips.
+          <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-display)", color: "var(--text-primary)" }}>
+            Inpaint cleanup
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+            Draw regions to remove from clips. The selected engine fills them in.
           </p>
         </div>
         <button
           onClick={onSkip}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border border-border/50 hover:border-border/80 px-3 py-2 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-2 rounded text-xs transition-colors"
+          style={{ fontFamily: "var(--font-display)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
         >
           Skip Inpaint
-          <SkipForward className="w-4 h-4" />
+          <SkipForward className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* Engine selector */}
-      <div className="flex flex-wrap items-stretch gap-2">
-        {(
-          [
-            { value: "diffueraser", label: "DiffuEraser (AI)", eta: "~10 min/clip" },
-            { value: "lama", label: "LaMa (Fast)", eta: "~2 min/clip" },
-            { value: "lama+e2fgvi", label: "LaMa + E2FGVI (Quality)", eta: "~5 min/clip" },
-            { value: "propainter", label: "ProPainter (Legacy)", eta: "~25 min/clip" },
-          ] as { value: InpaintEngine; label: string; eta: string }[]
-        ).map(({ value, label, eta }) => {
-          const active = engine === value;
-          return (
-            <button
-              key={value}
-              onClick={() => setEngine(value)}
-              className={`flex flex-col items-start px-3 py-2 rounded text-xs font-medium transition-colors border ${
-                active
-                  ? "gradient-primary-btn text-primary-foreground border-transparent"
-                  : "border-border/50 text-muted-foreground hover:border-border/80"
-              }`}
-            >
-              <span>{label}</span>
-              <span className={`text-[11px] font-normal ${active ? "opacity-80" : "opacity-60"}`}>{eta}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Output reference video */}
-      {outputInfo?.path && (
-        <div className="rounded-lg overflow-hidden border border-border/40 bg-black">
-          <p className="text-[10px] text-muted-foreground px-3 pt-2 pb-1 font-mono">Rendered output</p>
-          <video
-            src={outputInfo.path}
-            controls
-            className="w-full max-h-48 object-contain"
-            preload="metadata"
-          />
-        </div>
-      )}
-
-      {/* Segment list */}
-      <div className="space-y-2">
-        {acceptedSegments.map(({ seg, idx }) => {
-          const fileName = seg.video_path?.split(/[/\\]/).pop() ?? "Unknown";
-          const trim     = trimData[idx] ?? { start: seg.start, end: seg.end };
-          const midTime  = (trim.start + trim.end) / 2;
-          const thumbUrl = `/video/${encodeURIComponent(fileName)}#t=${midTime.toFixed(2)}`;
-          const job      = jobBySegment[idx];
-          const isSub    = submitting[idx] ?? false;
-
-          return (
-            <div key={idx} className="glass-card border border-border/50 rounded-lg p-3 flex items-center gap-3">
-              {/* Thumbnail */}
-              <div
-                className="flex-shrink-0 rounded overflow-hidden bg-black"
-                style={{ width: 40, aspectRatio: "9/16" }}
+      {/* Engine selector — 4 cards, 2×2 grid */}
+      <div>
+        <p
+          className="mb-3 uppercase"
+          style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 500, letterSpacing: "0.1em", color: "var(--text-muted)" }}
+        >
+          Inpaint Engine
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {ENGINES.map(({ value, label, time, qual, method }) => {
+            const active = engine === value;
+            return (
+              <button
+                key={value}
+                onClick={() => setEngine(value)}
+                className="relative text-left p-3 rounded transition-all"
+                style={{
+                  background: active ? "var(--accent-muted)"   : "var(--bg-tertiary)",
+                  border:     active ? "1px solid var(--accent-primary)" : "1px solid var(--border-subtle)",
+                  borderLeft: active ? "3px solid var(--accent-primary)" : "1px solid var(--border-subtle)",
+                }}
               >
-                <video
-                  src={thumbUrl}
-                  className="w-full h-full object-contain"
-                  preload="metadata"
-                  muted
-                  playsInline
-                />
-              </div>
-
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{fileName}</p>
-                <p className="text-[10px] font-mono text-muted-foreground">
-                  {trim.start.toFixed(2)}s – {trim.end.toFixed(2)}s
-                </p>
-
-                {/* Progress bar */}
-                {job && job.status.status === "running" && (
-                  <div className="mt-1 space-y-0.5">
-                    <Progress value={Math.round(job.status.progress * 100)} className="h-1" />
-                    <p className="text-[9px] font-mono text-muted-foreground">
-                      {job.status.frames_done}/{job.status.frames_total} frames
-                      {job.status.estimated_seconds !== null && ` · ${formatSeconds(job.status.estimated_seconds)} left`}
-                    </p>
-                  </div>
-                )}
-
-                {/* Remote pending hint */}
-                {job && job.status.status === "pending" && job.mode === "remote" && (
-                  <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
-                    Waiting for Colab to pick up job...
-                  </p>
-                )}
-
-                {/* Error */}
-                {job?.status.status === "failed" && (
-                  <p className="text-[10px] text-destructive mt-0.5 truncate">
-                    {job.status.error ?? "Failed"}
-                  </p>
-                )}
-              </div>
-
-              {/* Status + action */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Status pill */}
-                {job && (
-                  <span className={`flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-full border ${
-                    job.status.status === "done"    ? "border-status-online/40 text-status-online" :
-                    job.status.status === "running" ? "border-amber-400/40 text-amber-400" :
-                    job.status.status === "failed"  ? "border-destructive/40 text-destructive" :
-                                                      "border-border/40 text-muted-foreground"
-                  }`}>
-                    {job.status.status === "done"    && <CheckCircle2 className="w-3 h-3" />}
-                    {job.status.status === "running" && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {job.status.status === "failed"  && <AlertCircle className="w-3 h-3" />}
-                    {job.status.status === "pending" && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {job.status.status}
+                {active && (
+                  <span
+                    className="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{ background: "var(--accent-primary)" }}
+                  >
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                      <path d="M1 4l2 2 4-4" stroke="var(--bg-primary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </span>
                 )}
+                <p className="font-medium" style={{ fontFamily: "var(--font-display)", fontSize: 13, color: active ? "var(--accent-primary)" : "var(--text-primary)" }}>
+                  {label}
+                </p>
+                <p className="mt-0.5" style={{ fontSize: 11, color: "var(--text-muted)" }}>{time} · {qual}</p>
+                <p className="mt-0.5" style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>{method}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-                {/* Cancel running job */}
-                {job && (job.status.status === "running" || job.status.status === "pending") && (
-                  <button
-                    onClick={() => onCancelJob(job.jobId)}
-                    className="text-[10px] px-2 py-1 rounded border border-border/40 text-muted-foreground hover:border-destructive/50 hover:text-destructive transition-colors"
-                  >
-                    Cancel
-                  </button>
-                )}
+      {/* Segment list */}
+      <div className="space-y-3">
+        {acceptedSegments.map(({ seg, idx }) => {
+          const fileName  = seg.video_path?.split(/[/\\]/).pop() ?? "Unknown";
+          const trim      = trimData[idx] ?? { start: seg.start, end: seg.end };
+          const midTime   = (trim.start + trim.end) / 2;
+          const thumbUrl  = `/video/${encodeURIComponent(fileName)}#t=${midTime.toFixed(2)}`;
+          const job       = jobBySegment[idx];
+          const isSub     = submitting[idx] ?? false;
+          const isDrawing = drawingIndex === idx;
 
-                {/* Draw / Redraw button */}
-                {(!job || job.status.status === "failed" || job.status.status === "done") && (
+          const statusColor =
+            job?.status.status === "done"    ? "var(--status-accepted)"  :
+            job?.status.status === "failed"  ? "var(--status-failed)"    :
+            job?.status.status === "running" ? "var(--accent-primary)"   :
+            job?.status.status === "pending" ? "var(--status-running)"   :
+            "transparent";
+
+          return (
+            <div
+              key={idx}
+              className="rounded overflow-hidden"
+              style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)", borderLeft: `3px solid ${statusColor}` }}
+            >
+              <div className="flex items-center gap-3 p-3">
+                {/* Thumbnail */}
+                <div className="flex-shrink-0 rounded overflow-hidden" style={{ width: 48, height: 72, background: "#000" }}>
+                  <video src={thumbUrl} className="w-full h-full object-cover" preload="metadata" muted playsInline />
+                </div>
+
+                {/* Info + progress */}
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div>
+                    <p className="text-sm font-medium truncate" style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>
+                      {fileName}
+                    </p>
+                    <p style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
+                      {trim.start.toFixed(2)}s – {trim.end.toFixed(2)}s
+                    </p>
+                  </div>
+
+                  {job && (
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px]"
+                        style={{ fontFamily: "var(--font-mono)", background: `${statusColor}20`, color: statusColor }}
+                      >
+                        {job.status.status === "done"    && <CheckCircle2 className="w-3 h-3" />}
+                        {(job.status.status === "running" || job.status.status === "pending") && <Loader2 className="w-3 h-3 animate-spin" />}
+                        {job.status.status === "failed"  && <AlertCircle className="w-3 h-3" />}
+                        {job.status.status}
+                      </span>
+                      {job.engine && (
+                        <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{job.engine}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {job && <JobProgress job={job} />}
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  {job && (job.status.status === "running" || job.status.status === "pending") && (
+                    <button
+                      onClick={() => onCancelJob(job.jobId)}
+                      className="flex items-center gap-1 px-2 py-1.5 rounded text-[10px] transition-colors"
+                      style={{ border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+                    >
+                      <X className="w-3 h-3" />
+                      Cancel
+                    </button>
+                  )}
+
+                  {/* Draw / Redraw — always available */}
                   <button
-                    onClick={() => setDrawingIndex(idx)}
+                    onClick={() => setDrawingIndex(isDrawing ? null : idx)}
                     disabled={isSub}
-                    className="flex items-center gap-1 text-[10px] px-2 py-1.5 rounded border border-border/40 text-muted-foreground hover:border-primary/40 hover:text-primary/70 disabled:opacity-50 transition-colors"
+                    className="flex items-center gap-1 px-2 py-1.5 rounded text-[10px] transition-colors"
+                    style={{
+                      border:     `1px solid ${isDrawing ? "var(--accent-primary)" : "var(--border-subtle)"}`,
+                      background: isDrawing ? "var(--accent-muted)" : "var(--bg-tertiary)",
+                      color:      isDrawing ? "var(--accent-primary)" : "var(--text-secondary)",
+                    }}
                   >
-                    {isSub ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Paintbrush className="w-3 h-3" />
-                    )}
-                    {job?.status.status === "done" ? "Redraw" : "Draw region"}
+                    {isSub ? <Loader2 className="w-3 h-3 animate-spin" /> : <Paintbrush className="w-3 h-3" />}
+                    {isDrawing ? "Cancel" : job?.status.status === "done" ? "Redraw" : "Draw region"}
                   </button>
-                )}
+                </div>
               </div>
+
+              {/* Inline canvas */}
+              {isDrawing && (
+                <div className="border-t p-4" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-tertiary)" }}>
+                  <InpaintCanvas
+                    videoPath={seg.video_path ?? ""}
+                    midTime={midTime}
+                    onConfirm={(b64) => handleConfirmMask(idx, b64)}
+                    onCancel={() => setDrawingIndex(null)}
+                  />
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Render with inpainting */}
-      <div className="pt-2 border-t border-border/30">
+      {/* Render footer */}
+      <div className="pt-4" style={{ borderTop: "1px solid var(--border-subtle)" }}>
         <button
           onClick={handleRender}
-          disabled={!canRenderWithInpaint}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg gradient-primary-btn text-primary-foreground font-semibold disabled:opacity-50 transition-colors"
+          disabled={!canRender}
+          className="flex items-center gap-2 px-5 py-3 rounded gradient-primary-btn disabled:opacity-50 transition-all"
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 600,
+            fontSize: 14,
+            color: "var(--bg-primary)",
+            boxShadow: canRender ? "0 0 20px rgba(232,160,64,0.3)" : "none",
+          }}
         >
           <PlayCircle className="w-4 h-4" />
-          {renderBusy ? "Rendering…" : `Render with inpainting (${doneJobs.length} clip${doneJobs.length !== 1 ? "s" : ""})`}
+          {renderBusy
+            ? "Rendering…"
+            : `Render with inpainting (${doneJobs.length} clip${doneJobs.length !== 1 ? "s" : ""})`
+          }
         </button>
-        <p className="mt-1.5 text-[10px] text-muted-foreground">
-          Segments with completed inpaint jobs will use the inpainted clip. All others render as normal.
+        <p className="mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+          Completed inpaint clips replace originals. All others render as normal.
         </p>
       </div>
-
-      {/* Draw region modal */}
-      {drawingSegment && (
-        <DrawRegionModal
-          open={drawingIndex !== null}
-          segment={drawingSegment}
-          trim={drawingTrim}
-          onConfirm={(b64) => {
-            if (drawingIndex !== null) handleConfirmMask(drawingIndex, b64);
-          }}
-          onClose={() => setDrawingIndex(null)}
-        />
-      )}
     </div>
   );
 };

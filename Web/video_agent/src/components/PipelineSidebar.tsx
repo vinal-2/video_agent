@@ -66,17 +66,26 @@ const PipelineSidebar = ({
   };
 
   return (
-    <aside className="w-64 flex-shrink-0 flex flex-col h-full glass-surface border-r border-border/50 relative">
-      <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.02] to-transparent pointer-events-none" />
-
-      <div className="flex-1 overflow-y-auto p-5 space-y-7 relative z-10">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <SlidersHorizontal className="w-4 h-4" />
-          <span className="text-xs font-semibold uppercase tracking-[0.15em]">Pipeline Config</span>
+    <aside
+      className="flex-shrink-0 flex flex-col h-full relative"
+      style={{ width: 220, background: "var(--bg-secondary)", borderRight: "1px solid var(--border-subtle)" }}
+    >
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 relative z-10">
+        <div className="flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          <span
+            className="uppercase"
+            style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 500, letterSpacing: "0.1em", color: "var(--text-muted)" }}
+          >
+            Pipeline Config
+          </span>
         </div>
 
-        <div className="space-y-2.5 animate-fade-in" style={{ animationDelay: "0.05s" }}>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.15em]">
+        <div className="space-y-2 animate-fade-in" style={{ animationDelay: "0.05s" }}>
+          <label
+            className="block uppercase"
+            style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 500, letterSpacing: "0.1em", color: "var(--text-muted)" }}
+          >
             Template
           </label>
           <Select
@@ -97,8 +106,11 @@ const PipelineSidebar = ({
           </Select>
         </div>
 
-        <div className="space-y-2.5 animate-fade-in" style={{ animationDelay: "0.1s" }}>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.15em]">
+        <div className="space-y-2 animate-fade-in" style={{ animationDelay: "0.1s" }}>
+          <label
+            className="block uppercase"
+            style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 500, letterSpacing: "0.1em", color: "var(--text-muted)" }}
+          >
             Output Quality
           </label>
           <div className="grid grid-cols-2 gap-1.5">
@@ -107,18 +119,22 @@ const PipelineSidebar = ({
                 key={q.value}
                 onClick={() => onConfigChange({ quality: q.value })}
                 disabled={disabledInputs}
-                className={`relative px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  config.quality === q.value
-                    ? "gradient-primary-btn text-primary-foreground glow-primary"
-                    : "surface-elevated text-secondary-foreground hover:text-foreground hover:border-primary/20 border border-transparent"
-                } disabled:opacity-60`}
+                style={config.quality === q.value ? {
+                  background: "var(--accent-muted)",
+                  borderLeft: "3px solid var(--accent-primary)",
+                  borderTop: "1px solid var(--border-subtle)",
+                  borderRight: "1px solid var(--border-subtle)",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  color: "var(--text-primary)",
+                } : {
+                  background: "var(--bg-tertiary)",
+                  border: "1px solid var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+                className="relative px-3 py-2 rounded text-xs font-medium transition-all hover:brightness-110 disabled:opacity-60"
               >
-                <span className="block">{q.label}</span>
-                <span
-                  className={`text-[10px] block mt-0.5 ${
-                    config.quality === q.value ? "text-primary-foreground/70" : "text-muted-foreground"
-                  }`}
-                >
+                <span className="block" style={{ fontFamily: "var(--font-display)", fontWeight: config.quality === q.value ? 600 : 500 }}>{q.label}</span>
+                <span className="block mt-0.5" style={{ fontSize: 10, color: "var(--text-muted)" }}>
                   {q.desc}
                 </span>
               </button>
@@ -126,8 +142,11 @@ const PipelineSidebar = ({
           </div>
         </div>
 
-        <div className="space-y-3.5 animate-fade-in" style={{ animationDelay: "0.15s" }}>
-          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.15em]">
+        <div className="space-y-2 animate-fade-in" style={{ animationDelay: "0.15s" }}>
+          <label
+            className="block uppercase"
+            style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 500, letterSpacing: "0.1em", color: "var(--text-muted)" }}
+          >
             Options
           </label>
           <div className="space-y-1">
@@ -196,13 +215,19 @@ const PipelineSidebar = ({
       </div>
 
       <div className="p-4 relative z-10 space-y-2">
-        <div className="absolute inset-x-4 -top-6 h-6 bg-gradient-to-t from-sidebar to-transparent pointer-events-none" />
         <button
           onClick={handleRun}
           disabled={running}
-          className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-xl gradient-primary-btn glow-primary-strong text-primary-foreground font-semibold text-sm transition-all active:scale-[0.97] hover:scale-[1.01] disabled:opacity-60"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded gradient-primary-btn disabled:opacity-60 transition-all"
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 600,
+            fontSize: 14,
+            color: "var(--bg-primary)",
+            boxShadow: running ? "none" : "0 0 20px rgba(232,160,64,0.3)",
+          }}
         >
-          <Sparkles className="w-4.5 h-4.5" />
+          <Sparkles className="w-4 h-4" />
           {running ? "Running..." : "Run Pipeline"}
         </button>
         {running || phase === "rendering" ? (

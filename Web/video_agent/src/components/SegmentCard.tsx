@@ -681,8 +681,15 @@ const SegmentCard = ({
   onCheck,
 }: SegmentCardProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying]       = useState(false);
+  const [playing, setPlaying]         = useState(false);
   const [currentTime, setCurrentTime] = useState(trim.start);
+  const [scoreVisible, setScoreVisible] = useState(false);
+
+  // Animate score bars from 0 → value on mount
+  useEffect(() => {
+    const id = setTimeout(() => setScoreVisible(true), 60);
+    return () => clearTimeout(id);
+  }, []);
 
   const fileName     = segment.video_path?.split(/[/\\]/).pop() ?? "Unknown clip";
   const tags         = (segment.combined_tags ?? segment.tags ?? []) as string[];
@@ -765,98 +772,217 @@ const SegmentCard = ({
     ? Math.max(0, Math.min(100, ((currentTime - trim.start) / (trim.end - trim.start)) * 100))
     : 0;
 
+  // ── Score bar data ─────────────────────────────────────────────────────────
+  const aestheticScore = typeof styleScore === "number" ? Math.min(1, Math.max(0, styleScore)) : null;
+  const generalScore   = typeof segment.score === "number" ? Math.min(1, Math.max(0, segment.score)) : null;
+
+  // ── Status left-border style ───────────────────────────────────────────────
+  const borderLeft =
+    decision === "accepted"                            ? "4px solid var(--status-accepted)"  :
+    decision === "rejected"                            ? "4px solid transparent"              :
+    segment.buffer                                     ? "4px solid #60a5fa"                  :
+                                                         "4px solid var(--status-pending)";
+
+  const cardOpacity = decision === "rejected" ? 0.5 : 1;
+
+  const midTime = (trim.start + trim.end) / 2;
+  const thumbUrl = `/video/${encodeURIComponent(fileName)}#t=${midTime.toFixed(2)}`;
+
   return (
     <div
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className={`segment-card glass-card border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors ${
-        decision === "rejected" ? "opacity-50 border-destructive/40" : "border-border/60"
-      } ${segment.buffer ? "border-dashed border-accent/60" : ""}`}
+      className="segment-card focus:outline-none transition-all"
+      style={{
+        background: "var(--bg-secondary)",
+        border: "1px solid var(--border-subtle)",
+        borderLeft,
+        borderRadius: 6,
+        opacity: cardOpacity,
+        transform: "translateY(0)",
+        transition: "transform 100ms ease, opacity 200ms ease, border-color 200ms ease",
+      }}
+      onMouseEnter={(e) => { if (decision !== "rejected") (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; }}
     >
-      {/* ── Card header ─────────────────────────────────────── */}
+      {/* ── Card header ─────────────────────────────────────────────────── */}
       <div
-        className="p-4 flex items-center justify-between gap-3 flex-wrap cursor-pointer select-none"
+        className="flex items-stretch gap-0 cursor-pointer select-none"
         onClick={() => isExpanded ? onCollapse() : onExpand()}
       >
-        <div className="flex items-center gap-3">
-          {onCheck !== undefined && (
+        {/* Thumbnail (160×90) */}
+        <div
+          className="relative flex-shrink-0 overflow-hidden"
+          style={{ width: 160, height: 90, background: "#000", borderRadius: "5px 0 0 5px" }}
+        >
+          <video
+            src={thumbUrl}
+            className="w-full h-full object-cover"
+            preload="metadata"
+            muted
+            playsInline
+            style={{ display: "block" }}
+            onMouseEnter={(e) => { e.currentTarget.play().catch(() => {}); }}
+            onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = midTime; }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          {/* Segment number badge */}
+          <span
+            className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px]"
+            style={{ background: "rgba(0,0,0,0.7)", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}
+          >
+            #{index + 1}
+          </span>
+          {/* Duration badge */}
+          <span
+            className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px]"
+            style={{ background: "rgba(0,0,0,0.7)", fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}
+          >
+            {trimDur.toFixed(1)}s
+          </span>
+          {/* Transition badge top-right */}
+          {index > 0 && transition !== "cut" && (
             <span
-              onClick={(e) => { e.stopPropagation(); onCheck(); }}
-              role="checkbox"
-              aria-checked={checked ?? false}
-              className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center cursor-pointer transition-colors ${
-                checked
-                  ? "border-primary bg-primary/20 text-primary"
-                  : "border-border/60 hover:border-primary/50"
-              }`}
+              className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px]"
+              style={{ background: "var(--accent-muted)", color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}
             >
-              {checked && (
-                <svg className="w-2.5 h-2.5" viewBox="0 0 10 8" fill="none">
-                  <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
+              {transition.replace(/_/g, " ")}
             </span>
           )}
-          <div className="w-10 h-10 rounded-md surface-elevated flex items-center justify-center flex-shrink-0">
-            <Film className="w-5 h-5 text-primary/70" />
+        </div>
+
+        {/* Middle: info + score bars */}
+        <div className="flex-1 flex flex-col justify-center px-4 py-3 gap-2 min-w-0">
+          {/* Row 1: filename + timecodes */}
+          <div className="flex items-center gap-2 min-w-0">
+            {onCheck !== undefined && (
+              <span
+                onClick={(e) => { e.stopPropagation(); onCheck?.(); }}
+                role="checkbox"
+                aria-checked={checked ?? false}
+                className="flex-shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center cursor-pointer transition-colors"
+                style={{
+                  borderColor: checked ? "var(--accent-primary)" : "var(--border-subtle)",
+                  background:  checked ? "var(--accent-muted)"   : "transparent",
+                  color:       "var(--accent-primary)",
+                }}
+              >
+                {checked && (
+                  <svg className="w-2 h-2" viewBox="0 0 10 8" fill="none">
+                    <path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </span>
+            )}
+            <span
+              className="text-xs font-medium truncate"
+              style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}
+              title={fileName}
+            >
+              {fileName}
+            </span>
+            <span
+              className="text-[10px] flex-shrink-0"
+              style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}
+            >
+              {trim.start.toFixed(2)}s–{trim.end.toFixed(2)}s
+            </span>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">{fileName}</p>
-            <p className="text-xs text-muted-foreground font-mono">
-              {trim.start.toFixed(2)}s – {trim.end.toFixed(2)}s · {trimDur.toFixed(2)}s
-              {trimDur !== rawDur && (
-                <span className="ml-1 text-accent/70">(of {rawDur.toFixed(2)}s)</span>
-              )}
-            </p>
+
+          {/* Row 2: score bars */}
+          <div className="flex items-end gap-4">
+            {([
+              { label: "Aesthetic", score: aestheticScore },
+              { label: "Motion",    score: generalScore   },
+              { label: "Audio",     score: null           },
+            ] as const).map(({ label, score }) => (
+              <div key={label} className="flex flex-col gap-1" style={{ width: 60 }}>
+                <span style={{ fontSize: 9, color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>{label}</span>
+                <div
+                  className="rounded-full overflow-hidden"
+                  style={{ height: 4, background: "var(--bg-tertiary)", width: 60 }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: score !== null && scoreVisible ? `${Math.round(score * 100)}%` : "0%",
+                      background: "linear-gradient(90deg, var(--accent-secondary), var(--accent-primary))",
+                      transition: "width 0.6s ease-out",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Row 3: status badge / tags */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {segment.buffer && (
+              <span
+                className="px-2 py-0.5 rounded text-[10px]"
+                style={{ background: "rgba(96,165,250,0.15)", color: "#60a5fa", fontFamily: "var(--font-mono)" }}
+              >
+                Buffer
+              </span>
+            )}
+            {tags.slice(0, 4).map((tag) => (
+              <span
+                key={tag}
+                className="px-1.5 py-0.5 rounded text-[10px]"
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-muted)" }}
+              >
+                {tag}
+              </span>
+            ))}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {styleScore !== null && (
-            <span className="text-xs font-mono text-muted-foreground tabular-nums">
-              {styleScore.toFixed(2)}
-            </span>
-          )}
-          {index > 0 && transition !== "cut" && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-primary/30 text-primary/70">
-              {transition.replace("_", " ")}
-            </span>
-          )}
+        {/* Right: action buttons (80px) + expand chevron */}
+        <div
+          className="flex flex-col items-center justify-center gap-2 px-3 flex-shrink-0"
+          style={{ width: 80, borderLeft: "1px solid var(--border-subtle)" }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
-            onClick={(e) => { e.stopPropagation(); onDecision("accepted"); }}
-            className={`px-3 py-1.5 text-xs rounded-md border ${
-              decision === "accepted"
-                ? "border-primary text-primary"
-                : "border-border/50 text-muted-foreground"
-            }`}
+            onClick={() => onDecision("accepted")}
+            className="w-9 h-9 rounded flex items-center justify-center transition-all"
+            style={{
+              background: decision === "accepted" ? "rgba(52,211,153,0.2)" : "var(--bg-tertiary)",
+              border: `1px solid ${decision === "accepted" ? "var(--status-accepted)" : "var(--border-subtle)"}`,
+              color: decision === "accepted" ? "var(--status-accepted)" : "var(--text-muted)",
+            }}
+            title="Accept (A)"
           >
-            Accept
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 7l3.5 3.5L12 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); onDecision("rejected"); }}
-            className={`px-3 py-1.5 text-xs rounded-md border ${
-              decision === "rejected"
-                ? "border-destructive text-destructive"
-                : "border-border/50 text-muted-foreground"
-            }`}
+            onClick={() => onDecision("rejected")}
+            className="w-9 h-9 rounded flex items-center justify-center transition-all"
+            style={{
+              background: decision === "rejected" ? "rgba(239,68,68,0.2)" : "var(--bg-tertiary)",
+              border: `1px solid ${decision === "rejected" ? "#ef4444" : "var(--border-subtle)"}`,
+              color: decision === "rejected" ? "#ef4444" : "var(--text-muted)",
+            }}
+            title="Reject (R)"
           >
-            Reject
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
           </button>
-          <ChevronDown
-            className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-          />
+          <button
+            onClick={(e) => { e.stopPropagation(); if (isExpanded) { onCollapse(); } else { onExpand(); } }}
+            className="w-6 h-6 rounded flex items-center justify-center transition-all"
+            style={{ color: "var(--text-muted)" }}
+            title={isExpanded ? "Collapse" : "Expand controls"}
+          >
+            <ChevronDown
+              className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+            />
+          </button>
         </div>
       </div>
-
-      {/* Tags (collapsed view) */}
-      {!isExpanded && tags.length > 0 && (
-        <div className="px-4 pb-3 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-          {tags.map((tag) => (
-            <span key={tag} className="px-2 py-0.5 rounded-full bg-border/40">{tag}</span>
-          ))}
-          {segment.buffer && <span className="text-[10px] text-accent font-mono uppercase tracking-widest">Buffer</span>}
-        </div>
-      )}
 
       {/* ── Expanded section ────────────────────────────────── */}
       {isExpanded && (
