@@ -4,7 +4,7 @@
 # Usage (run from the repo root after cloning):
 #   bash deploy_vastai.sh
 #
-# What it does: 12 steps, PASS/FAIL per step, full log at /workspace/deploy.log
+# What it does: 13 steps, PASS/FAIL per step, full log at /workspace/deploy.log
 # Re-run safe: each step checks for existing artefacts before repeating work.
 # Exits 1 if any step fails.
 
@@ -445,7 +445,35 @@ else
     echo "FAIL: torch.cuda.is_available() returned False"
 fi
 
-# ── Step 12: Summary table ────────────────────────────────────────────────────
+# ── Step 12: Beat analysis deps (allin1 + librosa) ───────────────────────────
+
+_step 12 "BEAT ANALYSIS DEPS"
+source .venv/bin/activate
+# allin1: All-In-One Music Structure Analyzer (GPU, ~2GB VRAM at runtime)
+# librosa: CPU fallback for beat detection when allin1 unavailable
+if pip install allin1 librosa -q; then
+    if python3 - <<'PYEOF'
+import librosa
+print("librosa OK:", librosa.__version__)
+try:
+    import allin1
+    print("allin1 OK")
+except Exception as e:
+    print(f"allin1 import warning (may still work at runtime): {e}")
+PYEOF
+    then
+        _record "12_beat_analysis" "PASS"
+        echo "PASS: allin1 + librosa installed"
+    else
+        _record "12_beat_analysis" "FAIL"
+        echo "FAIL: import check failed after install"
+    fi
+else
+    _record "12_beat_analysis" "FAIL"
+    echo "FAIL: pip install allin1 librosa failed"
+fi
+
+# ── Step 13: Summary table ────────────────────────────────────────────────────
 
 echo ""
 echo "================================================================"
