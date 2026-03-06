@@ -891,14 +891,28 @@ def _run_render(segments: list, env: dict):
             music_path = MUSIC_DIR / music_filename
             if music_path.exists():
                 try:
-                    from scripts.beat_analyzer import analyze_music_track, snap_cuts_to_beats
+                    from scripts.beat_analyzer import analyze_music_track, snap_cuts_to_beats, target_segment_durations
                     _emit(f"[beat] Analyzing {music_filename}...")
                     beat_map  = analyze_music_track(str(music_path))
                     segments  = snap_cuts_to_beats(segments, beat_map,
-                                                   snap_window=0.5, prefer_downbeats=True)
+                                                   snap_window=0.75, prefer_downbeats=True)
                     snapped_n = sum(1 for s in segments if s.get("beat_snapped"))
                     _emit(f"[beat] Snapped {snapped_n}/{len(segments)} cuts to beats "
                           f"({beat_map['bpm']:.1f} BPM, {beat_map['analyzer']})")
+                    # Duration targeting — round each clip to nearest beat multiple
+                    try:
+                        beat_interval = 60.0 / float(beat_map["bpm"]) if beat_map.get("bpm") else None
+                        target_secs   = sum(
+                            float(s.get("duration") or (s["end"] - s["start"])) for s in segments
+                        )
+                        segments = target_segment_durations(
+                            segments,
+                            target_total_seconds=target_secs,
+                            beat_interval=beat_interval,
+                        )
+                        _emit(f"[beat] Durations rounded to beat multiples ({beat_interval:.3f}s/beat)")
+                    except Exception as dur_exc:
+                        _emit(f"[beat] Duration targeting failed ({dur_exc}) — keeping raw durations")
                 except Exception as beat_exc:
                     _emit(f"[beat] Beat snapping failed ({beat_exc}) — rendering without snap")
             else:

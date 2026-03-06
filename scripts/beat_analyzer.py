@@ -91,6 +91,38 @@ def save_beat_map_cache(audio_path: str, beat_map: dict) -> None:
         json.dump(beat_map, f)
 
 
+# ── Beat smoothing (FIX C) ─────────────────────────────────────────────────────
+
+def smooth_beats(beats: list, bpm: float) -> list:
+    """
+    Remove outlier beats that deviate >20% from the expected interval,
+    filling in missed beats where a double-length gap is detected.
+
+    Improves snap accuracy when allin1 produces occasional jitter.
+    """
+    if len(beats) < 4 or bpm <= 0:
+        return beats
+
+    import numpy as _np
+    expected_interval = 60.0 / bpm
+    smoothed = [beats[0]]
+
+    for i in range(1, len(beats)):
+        interval = beats[i] - smoothed[-1]
+        ratio = interval / expected_interval
+
+        if 0.8 <= ratio <= 1.2:
+            # Normal beat — accept as-is
+            smoothed.append(beats[i])
+        elif 1.8 <= ratio <= 2.2:
+            # Double gap — a beat was missed; interpolate then accept
+            smoothed.append(smoothed[-1] + expected_interval)
+            smoothed.append(beats[i])
+        # else: discard the outlier beat
+
+    return [round(float(b), 4) for b in smoothed]
+
+
 # ── Primary analysis: All-In-One ───────────────────────────────────────────────
 
 def analyze_with_allinone(wav_path: str) -> dict:
@@ -102,9 +134,13 @@ def analyze_with_allinone(wav_path: str) -> dict:
     import allin1
     result = allin1.analyze(wav_path)
 
+    raw_beats = [round(float(b), 4) for b in result.beats]
+    bpm       = round(float(result.bpm), 2)
+    smoothed  = smooth_beats(raw_beats, bpm)
+
     return {
-        "bpm":       round(float(result.bpm), 2),
-        "beats":     [round(float(b), 4) for b in result.beats],
+        "bpm":       bpm,
+        "beats":     smoothed,
         "downbeats": [round(float(d), 4) for d in result.downbeats],
         "segments":  [
             {
@@ -225,17 +261,25 @@ def analyze_music_track(audio_path: str, use_cache: bool = True) -> dict:
 def snap_cuts_to_beats(
     segments: list,
     beat_map: dict,
-    snap_window: float = 0.5,
+    snap_window: float = 0.75,   # FIX B: widened from 0.5 → 0.75
     prefer_downbeats: bool = True,
 ) -> list:
     """
     Adjust segment cut points to align with musical beats.
 
+    Priority order (FIX E — half-bar preference):
+      1. Nearest downbeat within snap_window
+      2. Nearest half-bar beat (every 2nd beat) within snap_window
+      3. Nearest single beat within snap_window
+      4. No snap — leave cut where it falls
+
+    Segments shorter than 1.5× beat interval are skipped (FIX D).
+
     Args:
-        segments:        List of dicts with 'start', 'end', 'duration' keys.
-        beat_map:        From analyze_music_track().
-        snap_window:     Max seconds to shift a cut point (default ±0.5s).
-        prefer_downbeats: Try downbeats before regular beats.
+        segments:         List of dicts with 'start', 'end', 'duration' keys.
+        beat_map:         From analyze_music_track().
+        snap_window:      Max seconds to shift a cut point (default ±0.75s).
+        prefer_downbeats: Try downbeats before half-bar and single beats.
 
     Returns:
         New list of segments with adjusted start/end times.
@@ -243,34 +287,41 @@ def snap_cuts_to_beats(
     """
     import numpy as np
 
-    beats = np.array(beat_map["beats"])
-    downbeats = (
-        np.array(beat_map["downbeats"]) if beat_map.get("downbeats") else beats
-    )
+    beats          = np.array(beat_map["beats"])
+    downbeats      = np.array(beat_map["downbeats"]) if beat_map.get("downbeats") else beats
+    half_bar_beats = beats[::2]                          # FIX E: every 2nd beat
     track_duration = float(beat_map["duration"])
+    bpm            = float(beat_map.get("bpm", 120))
+    beat_interval  = 60.0 / bpm if bpm > 0 else 0.5
+    min_snap_dur   = beat_interval * 1.5                 # FIX D: min duration to snap
 
     snapped: list = []
-    current_time = 0.0
+    current_time  = 0.0
 
     for seg in segments:
-        duration = seg.get("duration") or (seg["end"] - seg["start"])
+        duration      = seg.get("duration") or (seg["end"] - seg["start"])
         snapped_start = current_time
 
-        if prefer_downbeats and len(downbeats) > 0:
-            db_dists = np.abs(downbeats - current_time)
-            nearest_db = int(np.argmin(db_dists))
-            if db_dists[nearest_db] <= snap_window:
-                snapped_start = float(downbeats[nearest_db])
-            elif len(beats) > 0:
-                b_dists = np.abs(beats - current_time)
+        # FIX D — skip snapping for segments too short to align meaningfully
+        if duration >= min_snap_dur:
+            if prefer_downbeats and len(downbeats) > 0:
+                db_dists   = np.abs(downbeats - current_time)
+                nearest_db = int(np.argmin(db_dists))
+                if db_dists[nearest_db] <= snap_window:
+                    snapped_start = float(downbeats[nearest_db])
+
+            if snapped_start == current_time and len(half_bar_beats) > 0:
+                # FIX E — try half-bar before single beat
+                hb_dists   = np.abs(half_bar_beats - current_time)
+                nearest_hb = int(np.argmin(hb_dists))
+                if hb_dists[nearest_hb] <= snap_window:
+                    snapped_start = float(half_bar_beats[nearest_hb])
+
+            if snapped_start == current_time and len(beats) > 0:
+                b_dists   = np.abs(beats - current_time)
                 nearest_b = int(np.argmin(b_dists))
                 if b_dists[nearest_b] <= snap_window:
                     snapped_start = float(beats[nearest_b])
-        elif len(beats) > 0:
-            b_dists = np.abs(beats - current_time)
-            nearest_b = int(np.argmin(b_dists))
-            if b_dists[nearest_b] <= snap_window:
-                snapped_start = float(beats[nearest_b])
 
         snapped_start = min(snapped_start, max(0.0, track_duration - duration))
 
@@ -286,6 +337,63 @@ def snap_cuts_to_beats(
         current_time = snapped_end
 
     return snapped
+
+
+# ── Duration targeting ────────────────────────────────────────────────────────
+
+def target_segment_durations(
+    segments: list,
+    target_total_seconds: float,
+    beat_interval: Optional[float] = None,
+    min_segment_seconds: float = 1.5,
+    max_segment_seconds: float = 6.0,
+) -> list:
+    """
+    Adjust segment durations to hit a target total and optionally align
+    each clip's length to the nearest multiple of the beat interval.
+
+    Args:
+        segments:             Selected segments with start/end keys.
+        target_total_seconds: Desired total output duration (e.g. 58.0).
+        beat_interval:        Seconds per beat (60/bpm). If None, skip beat
+                              alignment and only scale to target.
+        min_segment_seconds:  Minimum allowed clip duration after adjustment.
+        max_segment_seconds:  Maximum allowed clip duration after adjustment.
+
+    Returns:
+        New list of segments with updated 'end' and 'duration' keys.
+        Original dicts are not mutated.
+    """
+    if not segments:
+        return segments
+
+    current_total = sum(
+        float(s.get("duration") or (s["end"] - s["start"])) for s in segments
+    )
+    scale = target_total_seconds / current_total if current_total > 0 else 1.0
+
+    adjusted: list = []
+    for seg in segments:
+        raw_dur = float(seg.get("duration") or (seg["end"] - seg["start"])) * scale
+
+        if beat_interval and beat_interval > 0:
+            # Round to nearest beat multiple, clamped to min/max
+            beats_min = max(1, round(min_segment_seconds / beat_interval))
+            beats_max = max(beats_min, round(max_segment_seconds / beat_interval))
+            beats_n   = round(raw_dur / beat_interval)
+            beats_n   = max(beats_min, min(beats_max, beats_n))
+            final_dur = round(beats_n * beat_interval, 4)
+        else:
+            final_dur = round(
+                max(min_segment_seconds, min(max_segment_seconds, raw_dur)), 4
+            )
+
+        new_seg = dict(seg)
+        new_seg["duration"] = final_dur
+        new_seg["end"]      = round(float(seg["start"]) + final_dur, 4)
+        adjusted.append(new_seg)
+
+    return adjusted
 
 
 # ── Energy matching ────────────────────────────────────────────────────────────

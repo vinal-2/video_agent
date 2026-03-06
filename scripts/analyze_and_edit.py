@@ -28,6 +28,7 @@ from scenedetect.detectors import ContentDetector
 from scripts.editing_brain import plan_edit
 from scripts.semantic_siglip import enrich_segments_with_siglip
 from scripts.semantic_aesthetic import score_clip_combined, get_template_key, TEMPLATE_PROMPTS
+from scripts.beat_analyzer import target_segment_durations
 from scripts.pipeline_logger import PipelineLogger
 from scripts.transitions import (
     PHASE1_TRANSITIONS,
@@ -1062,6 +1063,15 @@ def main_ui_mode():
     if not selected_segments:
         print("Editing brain returned no segments — aborting.")
         return
+
+    # Scale segment durations to target total (no beat_interval yet — music assigned at render time)
+    selected_segments = target_segment_durations(
+        selected_segments,
+        target_total_seconds=plan_target,
+        beat_interval=None,
+        min_segment_seconds=float(_dur_prefs.get("min_segment", 1.5)),
+        max_segment_seconds=float(_dur_prefs.get("max_segment", 6.0)),
+    )
 
     total_duration = sum(seg["end"] - seg["start"] for seg in selected_segments)
     elapsed        = (datetime.now() - t0).total_seconds()
