@@ -1,5 +1,21 @@
 export type PipelinePhase = "idle" | "analysing" | "reviewing" | "rendering" | "done" | "error" | string;
 
+export interface BeatMapSegment {
+  start: number;
+  end: number;
+  label: string;
+  energy: number;
+}
+
+export interface BeatMap {
+  bpm: number;
+  beats: number[];
+  downbeats: number[];
+  segments: BeatMapSegment[];
+  duration: number;
+  analyzer: string;  // "allin1" | "librosa_fallback"
+}
+
 export interface GradeSettings {
   brightness: number;  // -50 to +50
   contrast: number;    // -50 to +50

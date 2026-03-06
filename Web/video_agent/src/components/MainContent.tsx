@@ -15,7 +15,7 @@ import {
   Volume2,
   Maximize2,
 } from "lucide-react";
-import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings, SamMaskSettings, InpaintJob, InpaintEngine } from "@/lib/api";
+import type { PipelineStatus, Segment, OutputInfo, SegmentCounts, GradeSettings, TrimState, CropSettings, SamMaskSettings, InpaintJob, InpaintEngine, BeatMap } from "@/lib/api";
 import type { SegmentDecision } from "@/hooks/usePipeline";
 import SegmentCard from "@/components/SegmentCard";
 import SegmentTimeline from "@/components/SegmentTimeline";
@@ -68,6 +68,7 @@ interface MainContentProps {
   lastError?: string | null;
   segmentCounts?: SegmentCounts;
   ffmpegProgress: number | null;
+  beatMap?: BeatMap | null;
 }
 
 const MainContent = ({
@@ -100,6 +101,7 @@ const MainContent = ({
   lastError,
   segmentCounts,
   ffmpegProgress,
+  beatMap,
 }: MainContentProps) => {
   const [activeTab, setActiveTab]   = useState<Tab>("Log");
   const [rendering, setRendering]   = useState(false);
@@ -701,6 +703,7 @@ const ReviewPanel = ({
         selectedIndex={selectedTimelineIndex}
         onSelect={handleTimelineSelect}
         onReorder={setOrderedSegments}
+        beatMap={beatMap}
       />
 
       {/* Scrollable card list */}

@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { Sparkles, Layers, Eye, Cpu, Trash2, SlidersHorizontal, XCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { PipelineConfig, PipelinePhase } from "@/lib/api";
+import type { PipelineConfig, PipelinePhase, BeatMap } from "@/lib/api";
+import MusicPanel from "@/components/MusicPanel";
 
 const qualityOptions = [
   { label: "Proxy", desc: "Fast review", value: "proxy" },
@@ -20,6 +21,7 @@ interface PipelineSidebarProps {
   running: boolean;
   phase: PipelinePhase;
   error?: string | null;
+  onBeatMapChange: (bm: BeatMap | null) => void;
 }
 
 const prettifyTemplate = (value: string) =>
@@ -36,6 +38,7 @@ const PipelineSidebar = ({
   running,
   phase,
   error,
+  onBeatMapChange,
 }: PipelineSidebarProps) => {
   const formattedTemplates = useMemo(() => {
     if (!templates.length) {
@@ -104,6 +107,10 @@ const PipelineSidebar = ({
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="animate-fade-in" style={{ animationDelay: "0.08s" }}>
+          <MusicPanel onBeatMapChange={onBeatMapChange} />
         </div>
 
         <div className="space-y-2 animate-fade-in" style={{ animationDelay: "0.1s" }}>

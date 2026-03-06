@@ -31,6 +31,8 @@ COMMANDS_TXT = BASE_DIR / "Commands.txt"
 REACT_DIST   = BASE_DIR / "Web" / "video_agent" / "dist"
 APP_PORT       = int(os.environ.get("VIDEO_AGENT_PORT", "5100"))
 DRIVE_SYNC_DIR = Path(os.environ.get("DRIVE_SYNC_DIR", str(BASE_DIR / "output" / "inpainted")))
+MUSIC_DIR      = Path(os.environ.get("MUSIC_DIR",      str(BASE_DIR / "output" / "music")))
+MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
@@ -57,6 +59,7 @@ _pipeline_state = {
     "clip_count":        0,
     "segment_counts":    {"selected": 0, "accepted": 0, "buffer": 0},
     "ffmpeg_progress":   None,
+    "music_filename":    None,   # set via /api/job/set-music
 }
 _state_lock: threading.Lock = threading.Lock()
 _active_process: subprocess.Popen | None = None
@@ -351,6 +354,20 @@ def api_cancel():
         _set_error("Run cancelled by user", assume_locked=True)
     _emit("[warn] Pipeline cancelled by user")
     return jsonify({"ok": True, "cancelled": cancelled})
+
+
+@app.route("/api/job/set-music", methods=["POST"])
+def set_job_music():
+    """Associate (or clear) a music track with the current job."""
+    data = request.get_json(force=True) or {}
+    filename = data.get("music_filename")   # None clears the selection
+    if filename is not None:
+        filename = _safe_music_filename(str(filename))
+        if filename and not (MUSIC_DIR / filename).exists():
+            return jsonify({"error": f"Music file not found: {filename}"}), 404
+    with _state_lock:
+        _pipeline_state["music_filename"] = filename or None
+    return jsonify({"ok": True, "music_filename": filename})
 
 
 @app.route("/output/<path:filename>")
@@ -789,6 +806,48 @@ def _run_pipeline(env: dict):
             _pipeline_state["running"] = False
 
 
+def _mix_music_into_video(video_path: str, music_path: str) -> str:
+    """
+    Replace the video's audio track with the music file.
+    Applies a 2-second fade-out at the end of the music.
+    Returns path to the new mixed file (overwrites a _music-suffixed copy).
+    Raises RuntimeError if ffmpeg fails.
+    """
+    video_p  = Path(video_path)
+    out_path = video_p.with_stem(video_p.stem + "_music")
+
+    # Probe video duration for fade-out start time
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total_dur  = float(probe.stdout.strip())
+        fade_start = max(0.0, total_dur - 2.0)
+    except (ValueError, AttributeError):
+        fade_start = 0.0   # fallback: no fade
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", music_path,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-shortest",
+        "-af", f"afade=t=out:st={fade_start:.3f}:d=2",
+        str(out_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg music mix failed:\n{result.stderr[-1000:]}"
+        )
+    return str(out_path)
+
+
 def _run_render(segments: list, env: dict):
     global _cancel_requested
     _cancel_requested = False
@@ -825,6 +884,26 @@ def _run_render(segments: list, env: dict):
             except Exception:
                 pass
 
+        # ── Beat snapping (optional — skipped gracefully if no music set) ────────
+        with _state_lock:
+            music_filename = _pipeline_state.get("music_filename")
+        if music_filename:
+            music_path = MUSIC_DIR / music_filename
+            if music_path.exists():
+                try:
+                    from scripts.beat_analyzer import analyze_music_track, snap_cuts_to_beats
+                    _emit(f"[beat] Analyzing {music_filename}...")
+                    beat_map  = analyze_music_track(str(music_path))
+                    segments  = snap_cuts_to_beats(segments, beat_map,
+                                                   snap_window=0.5, prefer_downbeats=True)
+                    snapped_n = sum(1 for s in segments if s.get("beat_snapped"))
+                    _emit(f"[beat] Snapped {snapped_n}/{len(segments)} cuts to beats "
+                          f"({beat_map['bpm']:.1f} BPM, {beat_map['analyzer']})")
+                except Exception as beat_exc:
+                    _emit(f"[beat] Beat snapping failed ({beat_exc}) — rendering without snap")
+            else:
+                _emit(f"[beat] Music file not found ({music_filename}) — skipping beat snap")
+
         seg_file.write_text(json.dumps(segments), encoding="utf-8")
         with _state_lock:
             _pipeline_state["ffmpeg_progress"] = 0.0
@@ -855,6 +934,15 @@ def _run_render(segments: list, env: dict):
         # BUG FIX: skip phase update if user cancelled
         if not _cancel_requested:
             if output_path and Path(output_path).exists():
+                # ── Music mix (optional) ──────────────────────────────────────
+                if music_filename:
+                    music_path = MUSIC_DIR / music_filename
+                    if music_path.exists():
+                        try:
+                            output_path = _mix_music_into_video(output_path, str(music_path))
+                            _emit(f"[beat] Music mixed in → {Path(output_path).name}")
+                        except Exception as mix_exc:
+                            _emit(f"[beat] Music mix failed ({mix_exc}) — keeping silent video")
                 with _state_lock:
                     _pipeline_state["last_output"] = output_path
                     _pipeline_state["phase"]       = "done"
@@ -880,6 +968,85 @@ def _run_render(segments: list, env: dict):
         _register_process(None)
         with _state_lock:
             _pipeline_state["running"] = False
+
+
+# ── Music upload & beat analysis ──────────────────────────────────────────────
+
+_MUSIC_EXTENSIONS = {".mp3", ".aac", ".wav", ".m4a", ".flac", ".ogg"}
+_MUSIC_MAX_BYTES  = 50 * 1024 * 1024   # 50 MB
+
+
+def _safe_music_filename(name: str) -> str:
+    """Return a filesystem-safe filename, stripping path separators."""
+    return Path(name).name
+
+
+@app.route("/api/music/upload", methods=["POST"])
+def upload_music():
+    """
+    Accept a music file upload. Save to MUSIC_DIR.
+    Returns: {"filename": str, "path": str, "size_mb": float}
+    """
+    if "music" not in request.files:
+        return jsonify({"error": "No file in request (field: 'music')"}), 400
+
+    f = request.files["music"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    ext = Path(f.filename).suffix.lower()
+    if ext not in _MUSIC_EXTENSIONS:
+        return jsonify({"error": f"Unsupported file type '{ext}'. Allowed: {sorted(_MUSIC_EXTENSIONS)}"}), 400
+
+    safe_name = _safe_music_filename(f.filename)
+    dest = MUSIC_DIR / safe_name
+
+    # Read into memory to check size before writing
+    data = f.read()
+    if len(data) > _MUSIC_MAX_BYTES:
+        return jsonify({"error": f"File too large ({len(data)/1e6:.1f} MB). Max: 50 MB"}), 400
+
+    dest.write_bytes(data)
+    size_mb = round(dest.stat().st_size / 1e6, 2)
+    return jsonify({"filename": safe_name, "path": str(dest), "size_mb": size_mb})
+
+
+@app.route("/api/music/analyze", methods=["POST"])
+def analyze_music():
+    """
+    Analyze an uploaded music file and return a beat map.
+    Body: {"filename": str}
+    Returns: full beat map JSON (bpm, beats, downbeats, segments, duration, analyzer)
+    """
+    data = request.get_json(force=True) or {}
+    filename = data.get("filename", "").strip()
+    if not filename:
+        return jsonify({"error": "Missing 'filename' in request body"}), 400
+
+    music_path = MUSIC_DIR / _safe_music_filename(filename)
+    if not music_path.exists():
+        return jsonify({"error": f"File not found: {filename}"}), 404
+
+    try:
+        from scripts.beat_analyzer import analyze_music_track
+        beat_map = analyze_music_track(str(music_path))
+        return jsonify(beat_map)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/music/list", methods=["GET"])
+def list_music():
+    """Return list of uploaded music files, newest first."""
+    files = []
+    for f in MUSIC_DIR.iterdir():
+        if f.suffix.lower() in _MUSIC_EXTENSIONS:
+            files.append({
+                "filename": f.name,
+                "size_mb":  round(f.stat().st_size / 1e6, 2),
+                "modified": f.stat().st_mtime,
+            })
+    return jsonify(sorted(files, key=lambda x: x["modified"], reverse=True))
 
 
 # ── Video streaming with Range Request support ────────────────────────────────

@@ -1,10 +1,13 @@
+import { useState } from "react";
 import DashboardHeader from "@/components/DashboardHeader";
 import PipelineSidebar from "@/components/PipelineSidebar";
 import MainContent from "@/components/MainContent";
 import { usePipeline } from "@/hooks/usePipeline";
+import type { BeatMap } from "@/lib/api";
 
 const Index = () => {
   const pipeline = usePipeline();
+  const [beatMap, setBeatMap] = useState<BeatMap | null>(null);
 
   const sharedError = pipeline.error ?? pipeline.status?.error_detail ?? pipeline.status?.last_error ?? null;
 
@@ -27,6 +30,7 @@ const Index = () => {
           running={pipeline.isRunning}
           phase={pipeline.phase}
           error={sharedError}
+          onBeatMapChange={setBeatMap}
         />
         <MainContent
           status={pipeline.status}
@@ -58,6 +62,7 @@ const Index = () => {
           lastError={sharedError}
           segmentCounts={pipeline.segmentCounts}
           ffmpegProgress={pipeline.ffmpegProgress}
+          beatMap={beatMap}
         />
       </div>
     </div>
