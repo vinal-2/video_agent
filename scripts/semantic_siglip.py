@@ -534,10 +534,12 @@ def _caption_to_tags(caption: str) -> List[str]:
 def enrich_segments_with_siglip(
     segments:      List[Dict[str, Any]],
     style_profile: Optional[Dict[str, Any]] = None,
+    template_key:  str = "generic",
 ) -> List[Dict[str, Any]]:
     """
     Enrich all segments. Batched GPU for SigLIP + aesthetic.
     Motion smoothness skipped for segments < MOTION_SMOOTHNESS_MIN_DURATION.
+    template_key selects which TEMPLATE_PROMPTS entry to use for scoring.
     """
     if not segments:
         return segments
@@ -643,7 +645,33 @@ def enrich_segments_with_siglip(
         if tag_bias:
             style_sim += 0.1 * sum(float(tag_bias.get(t, 0.0)) for t in tags)
 
-        aesthetic    = aesthetic_scores.get(i, 0.5)
+        # ── Template-aware scoring ────────────────────────────────────────────
+        # Combines LAION aesthetic MLP score with CLIP text-image similarity
+        # against template-specific prompts. Falls back to plain aesthetic on error.
+        base_aesthetic = aesthetic_scores.get(i, 0.5)
+        template_score = 0.0
+        best_prompt    = ""
+        frame_scores_t: list = []
+        try:
+            from PIL import Image as _PIL_Image
+            from scripts.semantic_aesthetic import score_clip_combined as _scc
+            pil_frame  = _PIL_Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            score_result = _scc([pil_frame], template_key=template_key,
+                                aesthetic_weight=0.4, template_weight=0.6)
+            aesthetic      = score_result["combined_score"]
+            template_score = score_result["template_score"]
+            best_prompt    = score_result["best_prompt"]
+            frame_scores_t = score_result["frame_scores"]
+            clip_name = seg.get("video_path", "")
+            clip_name = clip_name.split("/")[-1].split("\\")[-1] if clip_name else f"seg{i}"
+            print(f"[scorer] {clip_name}: combined={aesthetic:.3f} "
+                  f"aesthetic={score_result['aesthetic_score']:.3f} "
+                  f"template={template_score:.3f} "
+                  f"best_prompt='{best_prompt[:40]}'")
+        except Exception as exc:
+            log.warning(f"[scorer] seg {i} template scoring failed, using plain aesthetic: {exc}")
+            aesthetic = base_aesthetic
+
         seg_duration = float(seg.get("end", 1)) - float(seg.get("start", 0))
         vp           = seg.get("video_path", "")
 
@@ -659,6 +687,9 @@ def enrich_segments_with_siglip(
         seg["is_blurry"]         = is_blurry
         seg["blur_score"]        = round(blur_val, 1)
         seg["aesthetic_score"]   = aesthetic
+        seg["template_score"]    = round(float(template_score), 4)
+        seg["best_prompt"]       = best_prompt
+        seg["frame_scores"]      = frame_scores_t
         seg["motion_smoothness"] = smoothness
 
     elapsed = time.perf_counter() - t0

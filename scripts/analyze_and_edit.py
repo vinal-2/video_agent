@@ -27,6 +27,7 @@ from scenedetect import VideoManager, SceneManager
 from scenedetect.detectors import ContentDetector
 from scripts.editing_brain import plan_edit
 from scripts.semantic_siglip import enrich_segments_with_siglip
+from scripts.semantic_aesthetic import score_clip_combined, get_template_key, TEMPLATE_PROMPTS
 from scripts.pipeline_logger import PipelineLogger
 from scripts.transitions import (
     PHASE1_TRANSITIONS,
@@ -919,7 +920,11 @@ def main():
     print("-- Step 3/4: Enriching segments (batched GPU) --")
     t3             = datetime.now()
     profile_w_blur = {**STYLE_PROFILE, "blur_threshold": BLUR_THRESHOLD}
-    segments       = enrich_segments_with_siglip(all_segments, style_profile=profile_w_blur)
+    template_key   = get_template_key(_TEMPLATE_NAME)
+    print(f"[scorer] Template: {_TEMPLATE_NAME!r} → key: {template_key!r}")
+    print(f"[scorer] Using {len(TEMPLATE_PROMPTS[template_key])} prompts")
+    segments       = enrich_segments_with_siglip(all_segments, style_profile=profile_w_blur,
+                                                 template_key=template_key)
     print(f"  ✓ {(datetime.now()-t3).total_seconds():.1f}s\n")
 
     # Logging — print score table + write CSV
@@ -1036,7 +1041,11 @@ def main_ui_mode():
     print("-- Step 3/4: Enriching segments (batched GPU) --")
     t3             = datetime.now()
     profile_w_blur = {**STYLE_PROFILE, "blur_threshold": BLUR_THRESHOLD}
-    segments       = enrich_segments_with_siglip(all_segments, style_profile=profile_w_blur)
+    template_key   = get_template_key(_TEMPLATE_NAME)
+    print(f"[scorer] Template: {_TEMPLATE_NAME!r} → key: {template_key!r}")
+    print(f"[scorer] Using {len(TEMPLATE_PROMPTS[template_key])} prompts")
+    segments       = enrich_segments_with_siglip(all_segments, style_profile=profile_w_blur,
+                                                 template_key=template_key)
     print(f"  ✓ {(datetime.now()-t3).total_seconds():.1f}s\n")
 
     logger = PipelineLogger(_TEMPLATE_NAME, LOGS_DIR)

@@ -41,6 +41,9 @@ export interface Segment {
   combined_tags?: string[];
   style_sim?: number;
   style_score?: number;
+  template_score?: number;   // 0-1, CLIP text-image similarity for active template
+  aesthetic_score?: number;  // 0-1, LAION aesthetic MLP score
+  best_prompt?: string;      // which template prompt matched best
   [key: string]: unknown;
 }
 

@@ -773,8 +773,13 @@ const SegmentCard = ({
     : 0;
 
   // ── Score bar data ─────────────────────────────────────────────────────────
-  const aestheticScore = typeof styleScore === "number" ? Math.min(1, Math.max(0, styleScore)) : null;
+  const templateScore  = typeof segment.template_score  === "number" ? Math.min(1, Math.max(0, segment.template_score))  : null;
+  const rawAesthetic   = typeof segment.aesthetic_score === "number" ? segment.aesthetic_score : styleScore;
+  const aestheticScore = typeof rawAesthetic === "number" ? Math.min(1, Math.max(0, rawAesthetic)) : null;
   const generalScore   = typeof segment.score === "number" ? Math.min(1, Math.max(0, segment.score)) : null;
+  // Use template_score for bar 1 when available; fall back to aesthetic_score / style_score
+  const bar1Score      = templateScore ?? aestheticScore;
+  const bar1Label      = templateScore !== null ? "Template" : "Aesthetic";
 
   // ── Status left-border style ───────────────────────────────────────────────
   const borderLeft =
@@ -892,10 +897,10 @@ const SegmentCard = ({
           {/* Row 2: score bars */}
           <div className="flex items-end gap-4">
             {([
-              { label: "Aesthetic", score: aestheticScore },
+              { label: bar1Label,   score: bar1Score      },
               { label: "Motion",    score: generalScore   },
               { label: "Audio",     score: null           },
-            ] as const).map(({ label, score }) => (
+            ] as { label: string; score: number | null }[]).map(({ label, score }) => (
               <div key={label} className="flex flex-col gap-1" style={{ width: 60 }}>
                 <span style={{ fontSize: 9, color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>{label}</span>
                 <div
